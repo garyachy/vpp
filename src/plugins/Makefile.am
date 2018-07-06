@@ -54,8 +54,8 @@ if ENABLE_GTPU_PLUGIN
 include gtpu.am
 endif
 
-if ENABLE_GTPUP_PLUGIN
-include gtp_up.am
+if ENABLE_UPF_PLUGIN
+include upf.am
 endif
 
 if ENABLE_IGMP_PLUGIN

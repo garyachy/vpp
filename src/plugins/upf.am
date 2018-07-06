@@ -1,0 +1,70 @@
+#
+# Copyright (c) 2017,2018 Travelping GmbH
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at:
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+vppapitestplugins_LTLIBRARIES += upf_test_plugin.la
+vppplugins_LTLIBRARIES += upf_plugin.la
+
+upf_plugin_la_LDFLAGS = $(AM_LDFLAGS) -lurcu-qsbr -lurcu
+if ENABLE_DPDK_SHARED
+upf_plugin_la_LDFLAGS += -ldpdk
+else
+upf_plugin_la_LDFLAGS += -Wl,--whole-archive,-l:libdpdk.a,--no-whole-archive
+endif
+if WITH_AESNI_MB_LIB
+upf_plugin_la_LDFLAGS += -Wl,--exclude-libs,libIPSec_MB.a,-l:libIPSec_MB.a
+endif
+if WITH_ISA_L_CRYPTO_LIB
+upf_plugin_la_LDFLAGS += -Wl,--exclude-libs,libisal_crypto.a,-l:libisal_crypto.a
+endif
+
+upf_plugin_la_CFLAGS = $(AM_CFLAGS)
+upf_plugin_la_LDFLAGS += -Wl,-lnuma
+upf_plugin_la_LDFLAGS += -Wl,-lm,-ldl
+upf_plugin_la_LIBADD =
+
+upf_plugin_la_SOURCES = \
+  upf/node.c \
+  upf/pfcp.h \
+  upf/pfcp.c \
+  upf/gtpu_encap.c \
+  upf/gtpu_decap.c \
+  upf/upf_if_input.c \
+  upf/upf_classify.c \
+  upf/upf.c \
+  upf/upf_api.c \
+  upf/upf_pfcp.c \
+  upf/upf_pfcp_api.c \
+  upf/upf_pfcp_input.c \
+  upf/upf_pfcp_server.c \
+  upf/upf.h \
+  upf/upf_all_api_h.h \
+  upf/upf_msg_enum.h \
+  upf/upf_pfcp.h \
+  upf/upf_pfcp_api.h \
+  upf/upf_http_redirect_server.h \
+  upf/upf_http_redirect_server.c
+
+API_FILES += upf/upf.api
+
+nobase_apiinclude_HEADERS +=		\
+  upf/upf_all_api_h.h \
+  upf/upf_msg_enum.h \
+  upf/upf.api.h
+
+upf_test_plugin_la_SOURCES = \
+  upf/upf_test.c \
+  upf/upf.api.h
+
+# vi:syntax=automake
