@@ -780,8 +780,11 @@ upf_create_app_command_fn (vlib_main_t * vm,
 {
   unformat_input_t _line_input, *line_input = &_line_input;
   u8 *name = NULL;
-  uword index = 0;
   upf_main_t * sm = &upf_main;
+  upf_dpi_app_t *app = NULL;
+
+  pool_get (sm->dpi_apps_pool, app);
+  memset(app, 0, sizeof(*app));
 
   /* Get a line of input. */
   if (unformat_user (input, unformat_line_input, line_input))
@@ -790,7 +793,8 @@ upf_create_app_command_fn (vlib_main_t * vm,
     {
       if (unformat (line_input, "%s", &name))
       {
-        mhash_set_mem (&sm->dpi_app_hash, name, &index, 0);
+        app->name = vec_dup(name);
+        hash_set_mem (sm->dpi_app_hash, app->name, app - sm->dpi_apps_pool);
       }
       else
       {
@@ -823,6 +827,8 @@ upf_delete_app_command_fn (vlib_main_t * vm,
   unformat_input_t _line_input, *line_input = &_line_input;
   u8 *name = NULL;
   upf_main_t * sm = &upf_main;
+  upf_dpi_app_t *app = NULL;
+  uword *p = NULL;
 
   /* Get a line of input. */
   if (unformat_user (input, unformat_line_input, line_input))
@@ -831,7 +837,14 @@ upf_delete_app_command_fn (vlib_main_t * vm,
     {
       if (unformat (line_input, "%s", &name))
       {
-        mhash_unset (&sm->dpi_app_hash, name, 0);
+        p = hash_get_mem (sm->dpi_app_hash, name);
+        if (p)
+        {
+          hash_unset_mem (sm->dpi_app_hash, name);
+          app = pool_elt_at_index (sm->dpi_apps_pool, p[0]);
+          vec_free (app->name);
+          pool_put (sm->dpi_apps_pool, app);
+        }
       }
       else
       {
@@ -876,7 +889,7 @@ upf_create_delete_rule_command_fn (vlib_main_t * vm,
       if (unformat (line_input, "%s rule %u %s",
                     &app_name, &rule_index, &rule_name))
       {
-        index = mhash_get (&sm->dpi_app_hash, app_name);
+        index = hash_get_mem (sm->dpi_app_hash, app_name);
         if (index)
         {
           vlib_cli_output (vm, "Application %s is present", app_name);
@@ -931,7 +944,7 @@ upf_show_app_command_fn (vlib_main_t * vm,
     {
       if (unformat (line_input, "%s", &name))
       {
-        index = mhash_get (&sm->dpi_app_hash, name);
+        index = hash_get_mem (sm->dpi_app_hash, name);
         if (index)
         {
           vlib_cli_output (vm, "Application %s is present", name);
@@ -967,12 +980,16 @@ upf_show_apps_command_fn (vlib_main_t * vm,
 {
   upf_main_t * sm = &upf_main;
   u8 *name = NULL;
-  uword *index = NULL;
+  u32 index = 0;
 
-  mhash_foreach(name, index, &sm->dpi_app_hash,
-                vlib_cli_output (vm, "%s", name));
-
-  (void) index;
+  /* *INDENT-OFF* */
+  hash_foreach(name, index, sm->dpi_app_hash,
+  ({
+     upf_dpi_app_t *app = NULL;
+     app = pool_elt_at_index(sm->dpi_apps_pool, index);
+     vlib_cli_output (vm, "%s", app->name);
+  }));
+  /* *INDENT-ON* */
 
   return NULL;
 }
@@ -1032,7 +1049,8 @@ static clib_error_t * upf_init (vlib_main_t * vm)
 
   sm->fib_node_type = fib_node_register_new_type (&upf_vft);
 
-  mhash_init_vec_string (&sm->dpi_app_hash, sizeof (uword));
+  sm->dpi_app_hash = hash_create_vec ( /* initial length */ 32,
+                                      sizeof (u8), sizeof (uword));
 
   return sx_server_main_init(vm);
 }

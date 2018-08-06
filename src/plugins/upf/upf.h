@@ -437,6 +437,18 @@ typedef struct {
   pfcp_recovery_time_stamp_t recovery_time_stamp;
 } upf_node_assoc_t;
 
+typedef struct {
+  u32 id;
+} upf_dpi_rule_t;
+
+typedef struct {
+  u8 * name;
+  /* Rules hash */
+  uword* rules_hash;
+  /* Rules vector */
+  upf_dpi_rule_t *rules_pool;
+} upf_dpi_app_t;
+
 #define UPF_MAPPING_BUCKETS      1024
 #define UPF_MAPPING_MEMORY_SIZE  64 << 20
 
@@ -491,7 +503,10 @@ typedef struct {
   vnet_main_t * vnet_main;
   ethernet_main_t * ethernet_main;
 
-  mhash_t dpi_app_hash;
+  /* DPI apps hash */
+  uword* dpi_app_hash;
+  /* DPI apps vector */
+  upf_dpi_app_t *dpi_apps_pool;
 } upf_main_t;
 
 extern const fib_node_vft_t upf_vft;
