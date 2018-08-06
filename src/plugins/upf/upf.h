@@ -490,6 +490,8 @@ typedef struct {
   vlib_main_t * vlib_main;
   vnet_main_t * vnet_main;
   ethernet_main_t * ethernet_main;
+
+  mhash_t dpi_app_hash;
 } upf_main_t;
 
 extern const fib_node_vft_t upf_vft;

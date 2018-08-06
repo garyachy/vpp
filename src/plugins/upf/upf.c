@@ -773,6 +773,94 @@ VLIB_CLI_COMMAND (upf_show_session_command, static) =
 };
 /* *INDENT-ON* */
 
+static clib_error_t *
+upf_create_app_command_fn (vlib_main_t * vm,
+                           unformat_input_t * input,
+                           vlib_cli_command_t * cmd)
+{
+  unformat_input_t _line_input, *line_input = &_line_input;
+  u8 *name = NULL;
+  uword index = 0;
+  upf_main_t * sm = &upf_main;
+
+  /* Get a line of input. */
+  if (unformat_user (input, unformat_line_input, line_input))
+  {
+    while (unformat_check_input (line_input) != UNFORMAT_END_OF_INPUT)
+    {
+      if (unformat (line_input, "application %s", &name))
+      {
+        mhash_set_mem (&sm->dpi_app_hash, name, &index, 0);
+      }
+      else
+      {
+        unformat_free (line_input);
+        return clib_error_return (0, "unknown input `%U'",
+        format_unformat_error, input);
+      }
+    }
+
+    unformat_free (line_input);
+  }
+
+  return NULL;
+}
+
+/* *INDENT-OFF* */
+VLIB_CLI_COMMAND (upf_create_app_command, static) =
+{
+  .path = "create upf",
+  .short_help = "create upf application <name>",
+  .function = upf_create_app_command_fn,
+};
+/* *INDENT-ON* */
+
+static clib_error_t *
+upf_show_app_command_fn (vlib_main_t * vm,
+                         unformat_input_t * input,
+                         vlib_cli_command_t * cmd)
+{
+  unformat_input_t _line_input, *line_input = &_line_input;
+  u8 *name = NULL;
+  uword *index = NULL;
+  upf_main_t * sm = &upf_main;
+
+  /* Get a line of input. */
+  if (unformat_user (input, unformat_line_input, line_input))
+  {
+    while (unformat_check_input (line_input) != UNFORMAT_END_OF_INPUT)
+    {
+      if (unformat (line_input, "application %s", &name))
+      {
+        index = mhash_get (&sm->dpi_app_hash, name);
+        if (index)
+        {
+          vlib_cli_output (vm, "Application %s is present", name);
+        }
+      }
+      else
+      {
+        unformat_free (line_input);
+        return clib_error_return (0, "unknown input `%U'",
+        format_unformat_error, input);
+      }
+    }
+
+    unformat_free (line_input);
+  }
+
+  return NULL;
+}
+
+/* *INDENT-OFF* */
+VLIB_CLI_COMMAND (upf_show_app_command, static) =
+{
+  .path = "show upf",
+  .short_help = "show upf application <name>",
+  .function = upf_show_app_command_fn,
+};
+/* *INDENT-ON* */
+
 static clib_error_t * upf_init (vlib_main_t * vm)
 {
   upf_main_t * sm = &upf_main;
@@ -818,6 +906,8 @@ static clib_error_t * upf_init (vlib_main_t * vm)
 			 gtpu6_input_node.index, /* is_ip4 */ 0);
 
   sm->fib_node_type = fib_node_register_new_type (&upf_vft);
+
+  mhash_init_vec_string (&sm->dpi_app_hash, sizeof (uword));
 
   return sx_server_main_init(vm);
 }
