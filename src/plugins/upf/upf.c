@@ -902,6 +902,32 @@ VLIB_CLI_COMMAND (upf_show_app_command, static) =
 };
 /* *INDENT-ON* */
 
+static clib_error_t *
+upf_show_apps_command_fn (vlib_main_t * vm,
+                          unformat_input_t * input,
+                          vlib_cli_command_t * cmd)
+{
+  upf_main_t * sm = &upf_main;
+  u8 *name = NULL;
+  uword *index = NULL;
+
+  mhash_foreach(name, index, &sm->dpi_app_hash,
+                vlib_cli_output (vm, "%s", name));
+
+  (void) index;
+
+  return NULL;
+}
+
+/* *INDENT-OFF* */
+VLIB_CLI_COMMAND (upf_show_apps_command, static) =
+{
+  .path = "show upf applications",
+  .short_help = "show upf applications [verbose]",
+  .function = upf_show_apps_command_fn,
+};
+/* *INDENT-ON* */
+
 static clib_error_t * upf_init (vlib_main_t * vm)
 {
   upf_main_t * sm = &upf_main;
