@@ -816,6 +816,47 @@ VLIB_CLI_COMMAND (upf_create_app_command, static) =
 /* *INDENT-ON* */
 
 static clib_error_t *
+upf_delete_app_command_fn (vlib_main_t * vm,
+                           unformat_input_t * input,
+                           vlib_cli_command_t * cmd)
+{
+  unformat_input_t _line_input, *line_input = &_line_input;
+  u8 *name = NULL;
+  upf_main_t * sm = &upf_main;
+
+  /* Get a line of input. */
+  if (unformat_user (input, unformat_line_input, line_input))
+  {
+    while (unformat_check_input (line_input) != UNFORMAT_END_OF_INPUT)
+    {
+      if (unformat (line_input, "application %s", &name))
+      {
+        mhash_unset (&sm->dpi_app_hash, name, 0);
+      }
+      else
+      {
+        unformat_free (line_input);
+        return clib_error_return (0, "unknown input `%U'",
+        format_unformat_error, input);
+      }
+    }
+
+    unformat_free (line_input);
+  }
+
+  return NULL;
+}
+
+/* *INDENT-OFF* */
+VLIB_CLI_COMMAND (upf_delete_app_command, static) =
+{
+  .path = "delete upf",
+  .short_help = "delete upf application <name>",
+  .function = upf_delete_app_command_fn,
+};
+/* *INDENT-ON* */
+
+static clib_error_t *
 upf_show_app_command_fn (vlib_main_t * vm,
                          unformat_input_t * input,
                          vlib_cli_command_t * cmd)
