@@ -444,9 +444,9 @@ typedef struct {
 typedef struct {
   u8 * name;
   /* Rules hash */
-  uword* rules_hash;
+  uword* rules_by_id;
   /* Rules vector */
-  upf_dpi_rule_t *rules_pool;
+  upf_dpi_rule_t *rules;
 } upf_dpi_app_t;
 
 #define UPF_MAPPING_BUCKETS      1024
@@ -504,9 +504,9 @@ typedef struct {
   ethernet_main_t * ethernet_main;
 
   /* DPI apps hash */
-  uword* dpi_app_hash;
+  uword* upf_app_by_name;
   /* DPI apps vector */
-  upf_dpi_app_t *dpi_apps_pool;
+  upf_dpi_app_t *upf_apps;
 } upf_main_t;
 
 extern const fib_node_vft_t upf_vft;
