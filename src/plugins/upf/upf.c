@@ -773,6 +773,41 @@ VLIB_CLI_COMMAND (upf_show_session_command, static) =
 };
 /* *INDENT-ON* */
 
+static int
+vnet_upf_app_add_del(u8 * name, u8 add)
+{
+  upf_main_t *sm = &upf_main;
+  upf_dpi_app_t *app = NULL;
+  uword *p = NULL;
+
+  p = hash_get_mem (sm->upf_app_by_name, name);
+
+  if (add)
+    {
+      if (p)
+        return VNET_API_ERROR_VALUE_EXIST;
+
+      pool_get (sm->upf_apps, app);
+      memset(app, 0, sizeof(*app));
+
+      app->name = vec_dup(name);
+
+      hash_set_mem (sm->upf_app_by_name, app->name, app - sm->upf_apps);
+    }
+  else
+    {
+      if (!p)
+        return VNET_API_ERROR_NO_SUCH_ENTRY;
+
+      hash_unset_mem (sm->upf_app_by_name, name);
+      app = pool_elt_at_index (sm->upf_apps, p[0]);
+      vec_free (app->name);
+      pool_put (sm->upf_apps, app);
+    }
+
+  return 0;
+}
+
 static clib_error_t *
 upf_create_app_command_fn (vlib_main_t * vm,
                            unformat_input_t * input,
@@ -781,9 +816,7 @@ upf_create_app_command_fn (vlib_main_t * vm,
   unformat_input_t _line_input, *line_input = &_line_input;
   u8 *name = NULL;
   clib_error_t *error = NULL;
-  upf_dpi_app_t *app = NULL;
-  uword *p = NULL;
-  upf_main_t * sm = &upf_main;
+  int rv = 0;
 
   /* Get a line of input. */
   if (!unformat_user (input, unformat_line_input, line_input))
@@ -792,29 +825,36 @@ upf_create_app_command_fn (vlib_main_t * vm,
   while (unformat_check_input (line_input) != UNFORMAT_END_OF_INPUT)
     {
       if (unformat (line_input, "%s", &name))
-        {
-          p = hash_get_mem (sm->upf_app_by_name, name);
-          if (p)
-            {
-              error = clib_error_return (0, "application already exists");
-              goto done;
-            }
-
-          pool_get (sm->upf_apps, app);
-          memset(app, 0, sizeof(*app));
-          app->name = vec_dup(name);
-          hash_set_mem (sm->upf_app_by_name, app->name, app - sm->upf_apps);
-          goto done;
-        }
+        break;
       else
         {
-          error = clib_error_return (0, "unknown input `%U'",
-          format_unformat_error, input);
+          error = unformat_parse_error (line_input);
           goto done;
         }
     }
 
+  rv = vnet_upf_app_add_del(name, 1);
+
+  switch (rv)
+    {
+    case 0:
+      break;
+
+    case VNET_API_ERROR_VALUE_EXIST:
+      error = clib_error_return (0, "application already exists...");
+      break;
+
+    case VNET_API_ERROR_NO_SUCH_ENTRY:
+      error = clib_error_return (0, "application does not exist...");
+      break;
+
+    default:
+      error = clib_error_return (0, "%s returned %d", __FUNCTION__, rv);
+      break;
+    }
+
 done:
+  vec_free (name);
   unformat_free (line_input);
 
   return error;
@@ -836,10 +876,8 @@ upf_delete_app_command_fn (vlib_main_t * vm,
 {
   unformat_input_t _line_input, *line_input = &_line_input;
   u8 *name = NULL;
-  upf_dpi_app_t *app = NULL;
-  uword *p = NULL;
   clib_error_t *error = NULL;
-  upf_main_t *sm = &upf_main;
+  int rv = 0;
 
   /* Get a line of input. */
   if (!unformat_user (input, unformat_line_input, line_input))
@@ -848,29 +886,36 @@ upf_delete_app_command_fn (vlib_main_t * vm,
   while (unformat_check_input (line_input) != UNFORMAT_END_OF_INPUT)
     {
       if (unformat (line_input, "%s", &name))
-        {
-          p = hash_get_mem (sm->upf_app_by_name, name);
-          if (!p)
-            {
-              error = clib_error_return (0, "unknown application name");
-              goto done;
-            }
-
-          hash_unset_mem (sm->upf_app_by_name, name);
-          app = pool_elt_at_index (sm->upf_apps, p[0]);
-          vec_free (app->name);
-          pool_put (sm->upf_apps, app);
-          goto done;
-        }
+        break;
       else
         {
-          error = clib_error_return (0, "unknown input `%U'",
-          format_unformat_error, input);
+          error = unformat_parse_error (line_input);
           goto done;
         }
     }
 
+  rv = vnet_upf_app_add_del(name, 0);
+
+  switch (rv)
+    {
+    case 0:
+      break;
+
+    case VNET_API_ERROR_VALUE_EXIST:
+      error = clib_error_return (0, "application already exists...");
+      break;
+
+    case VNET_API_ERROR_NO_SUCH_ENTRY:
+      error = clib_error_return (0, "application does not exist...");
+      break;
+
+    default:
+      error = clib_error_return (0, "%s returned %d", __FUNCTION__, rv);
+      break;
+    }
+
 done:
+  vec_free (name);
   unformat_free (line_input);
 
   return error;
@@ -885,6 +930,26 @@ VLIB_CLI_COMMAND (upf_delete_app_command, static) =
 };
 /* *INDENT-ON* */
 
+static int
+vnet_upf_rule_add_del(u8 * app_name, u32 rule_index, u8 * rule_name, u8 add)
+{
+  upf_main_t *sm = &upf_main;
+  uword *p = NULL;
+
+  p = hash_get_mem (sm->upf_app_by_name, app_name);
+  if (!p)
+    return VNET_API_ERROR_NO_SUCH_ENTRY;
+
+  if (add)
+    {
+    }
+  else
+    {
+    }
+
+  return 0;
+}
+
 static clib_error_t *
 upf_application_rule_add_del_command_fn (vlib_main_t * vm,
                                          unformat_input_t * input,
@@ -894,9 +959,9 @@ upf_application_rule_add_del_command_fn (vlib_main_t * vm,
   u8 *app_name = NULL;
   u8 *rule_name = NULL;
   u32 rule_index = 0;
-  uword *p = NULL;
   clib_error_t *error = NULL;
-  upf_main_t * sm = &upf_main;
+  int rv = 0;
+  int add = 0;
 
   /* Get a line of input. */
   if (!unformat_user (input, unformat_line_input, line_input))
@@ -907,33 +972,47 @@ upf_application_rule_add_del_command_fn (vlib_main_t * vm,
       if (unformat (line_input, "%s rule %u",
                     &app_name, &rule_index, &rule_name))
         {
-          p = hash_get_mem (sm->upf_app_by_name, app_name);
-          if (!p)
-            {
-              error = clib_error_return (0, "unknown application name");
-              goto done;
-            }
-
           if (unformat (line_input, "del"))
             {
-              vlib_cli_output (vm, "Delete rule");
-              goto done;
+              add = 0;
+              break;
             }
           else
             {
-              vlib_cli_output (vm, "Add rule");
-              goto done;
+              add = 1;
+              break;
             }
         }
       else
         {
           error = clib_error_return (0, "unknown input `%U'",
-          format_unformat_error, input);
+                                     format_unformat_error, input);
           goto done;
         }
     }
 
+  rv = vnet_upf_rule_add_del(app_name, rule_index, rule_name, add);
+  switch (rv)
+    {
+    case 0:
+      break;
+
+    case VNET_API_ERROR_VALUE_EXIST:
+      error = clib_error_return (0, "rule already exists...");
+      break;
+
+    case VNET_API_ERROR_NO_SUCH_ENTRY:
+      error = clib_error_return (0, "application or rule does not exist...");
+      break;
+
+    default:
+      error = clib_error_return (0, "%s returned %d", __FUNCTION__, rv);
+      break;
+    }
+
 done:
+  vec_free (app_name);
+  vec_free (rule_name);
   unformat_free (line_input);
 
   return error;
@@ -967,15 +1046,7 @@ upf_show_app_command_fn (vlib_main_t * vm,
     {
       if (unformat (line_input, "%s", &name))
         {
-          p = hash_get_mem (sm->upf_app_by_name, name);
-          if (!p)
-            {
-              error = clib_error_return (0, "unknown application name");
-              goto done;
-            }
-
-          vlib_cli_output (vm, "Rule details:");
-          goto done;
+          break;
         }
       else
         {
@@ -985,7 +1056,17 @@ upf_show_app_command_fn (vlib_main_t * vm,
         }
     }
 
+  p = hash_get_mem (sm->upf_app_by_name, name);
+  if (!p)
+    {
+      error = clib_error_return (0, "unknown application name");
+      goto done;
+    }
+
+  vlib_cli_output (vm, "Rule details:");
+
 done:
+  vec_free (name);
   unformat_free (line_input);
 
   return error;
