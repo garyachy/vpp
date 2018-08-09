@@ -791,6 +791,7 @@ vnet_upf_app_add_del(u8 * name, u8 add)
       memset(app, 0, sizeof(*app));
 
       app->name = vec_dup(name);
+      app->rules_by_id = hash_create_mem (0, sizeof (u32), sizeof (uword));
 
       hash_set_mem (sm->upf_app_by_name, app->name, app - sm->upf_apps);
     }
@@ -802,6 +803,8 @@ vnet_upf_app_add_del(u8 * name, u8 add)
       hash_unset_mem (sm->upf_app_by_name, name);
       app = pool_elt_at_index (sm->upf_apps, p[0]);
       vec_free (app->name);
+      hash_free(app->rules_by_id);
+      pool_free(app->rules);
       pool_put (sm->upf_apps, app);
     }
 
@@ -931,20 +934,41 @@ VLIB_CLI_COMMAND (upf_delete_app_command, static) =
 /* *INDENT-ON* */
 
 static int
-vnet_upf_rule_add_del(u8 * app_name, u32 rule_index, u8 * rule_name, u8 add)
+vnet_upf_rule_add_del(u8 * app_name, u32 rule_index, u8 add)
 {
   upf_main_t *sm = &upf_main;
   uword *p = NULL;
+  upf_dpi_app_t *app = NULL;
+  upf_dpi_rule_t *rule = NULL;
 
   p = hash_get_mem (sm->upf_app_by_name, app_name);
   if (!p)
     return VNET_API_ERROR_NO_SUCH_ENTRY;
 
+  app = pool_elt_at_index (sm->upf_apps, p[0]);
+
+  p = hash_get_mem (app->rules_by_id, &rule_index);
+
   if (add)
     {
+      if (p)
+        return VNET_API_ERROR_VALUE_EXIST;
+
+      pool_get (app->rules, rule);
+      memset(rule, 0, sizeof(*rule));
+      rule->id = rule_index;
+
+      hash_set_mem (app->rules_by_id,
+                    &rule_index, rule - app->rules);
     }
   else
     {
+      if (!p)
+        return VNET_API_ERROR_NO_SUCH_ENTRY;
+
+      rule = pool_elt_at_index (app->rules, p[0]);
+      hash_unset_mem (app->rules_by_id, &rule_index);
+      pool_put (app->rules, rule);
     }
 
   return 0;
@@ -957,7 +981,6 @@ upf_application_rule_add_del_command_fn (vlib_main_t * vm,
 {
   unformat_input_t _line_input, *line_input = &_line_input;
   u8 *app_name = NULL;
-  u8 *rule_name = NULL;
   u32 rule_index = 0;
   clib_error_t *error = NULL;
   int rv = 0;
@@ -970,7 +993,7 @@ upf_application_rule_add_del_command_fn (vlib_main_t * vm,
   while (unformat_check_input (line_input) != UNFORMAT_END_OF_INPUT)
     {
       if (unformat (line_input, "%s rule %u",
-                    &app_name, &rule_index, &rule_name))
+                    &app_name, &rule_index))
         {
           if (unformat (line_input, "del"))
             {
@@ -991,7 +1014,7 @@ upf_application_rule_add_del_command_fn (vlib_main_t * vm,
         }
     }
 
-  rv = vnet_upf_rule_add_del(app_name, rule_index, rule_name, add);
+  rv = vnet_upf_rule_add_del(app_name, rule_index, add);
   switch (rv)
     {
     case 0:
@@ -1012,7 +1035,6 @@ upf_application_rule_add_del_command_fn (vlib_main_t * vm,
 
 done:
   vec_free (app_name);
-  vec_free (rule_name);
   unformat_free (line_input);
 
   return error;
@@ -1036,6 +1058,9 @@ upf_show_app_command_fn (vlib_main_t * vm,
   u8 *name = NULL;
   uword *p = NULL;
   clib_error_t *error = NULL;
+  u32 index = 0;
+  u32 rule_index = 0;
+  upf_dpi_app_t *app = NULL;
   upf_main_t * sm = &upf_main;
 
   /* Get a line of input. */
@@ -1063,7 +1088,18 @@ upf_show_app_command_fn (vlib_main_t * vm,
       goto done;
     }
 
-  vlib_cli_output (vm, "Rule details:");
+  app = pool_elt_at_index (sm->upf_apps, p[0]);
+
+  vlib_cli_output (vm, "Rules:");
+
+  /* *INDENT-OFF* */
+  hash_foreach(rule_index, index, app->rules_by_id,
+  ({
+     upf_dpi_rule_t *rule = NULL;
+     rule = pool_elt_at_index(app->rules, index);
+     vlib_cli_output (vm, "Rule %u", rule->id);
+  }));
+  /* *INDENT-ON* */
 
 done:
   vec_free (name);
