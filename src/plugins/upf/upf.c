@@ -934,7 +934,8 @@ VLIB_CLI_COMMAND (upf_delete_app_command, static) =
 /* *INDENT-ON* */
 
 static int
-vnet_upf_rule_add_del(u8 * app_name, u32 rule_index, u8 add)
+vnet_upf_rule_add_del(u8 * app_name, u32 rule_index, u8 add,
+                      upf_rule_args_t *args)
 {
   upf_main_t *sm = &upf_main;
   uword *p = NULL;
@@ -957,6 +958,7 @@ vnet_upf_rule_add_del(u8 * app_name, u32 rule_index, u8 add)
       pool_get (app->rules, rule);
       memset(rule, 0, sizeof(*rule));
       rule->id = rule_index;
+      rule->host = vec_dup(args->host);
 
       hash_set_mem (app->rules_by_id,
                     &rule_index, rule - app->rules);
@@ -967,6 +969,7 @@ vnet_upf_rule_add_del(u8 * app_name, u32 rule_index, u8 add)
         return VNET_API_ERROR_NO_SUCH_ENTRY;
 
       rule = pool_elt_at_index (app->rules, p[0]);
+      vec_free(rule->host);
       hash_unset_mem (app->rules_by_id, &rule_index);
       pool_put (app->rules, rule);
     }
@@ -981,10 +984,14 @@ upf_application_rule_add_del_command_fn (vlib_main_t * vm,
 {
   unformat_input_t _line_input, *line_input = &_line_input;
   u8 *app_name = NULL;
+  u8 *src_ip = NULL;
+  u8 *dst_ip = NULL;
+  u8 *host = NULL;
   u32 rule_index = 0;
   clib_error_t *error = NULL;
   int rv = 0;
   int add = 1;
+  upf_rule_args_t rule_args = {};
 
   /* Get a line of input. */
   if (!unformat_user (input, unformat_line_input, line_input))
@@ -1020,7 +1027,11 @@ upf_application_rule_add_del_command_fn (vlib_main_t * vm,
         }
     }
 
-  rv = vnet_upf_rule_add_del(app_name, rule_index, add);
+  rule_args.host = host;
+  rule_args.src_ip = src_ip;
+  rule_args.dst_ip = dst_ip;
+
+  rv = vnet_upf_rule_add_del(app_name, rule_index, add, &rule_args);
   switch (rv)
     {
     case 0:
@@ -1040,6 +1051,8 @@ upf_application_rule_add_del_command_fn (vlib_main_t * vm,
     }
 
 done:
+  vec_free (dst_ip);
+  vec_free (src_ip);
   vec_free (app_name);
   unformat_free (line_input);
 
@@ -1055,6 +1068,25 @@ VLIB_CLI_COMMAND (upf_application_rule_add_del_command, static) =
 };
 /* *INDENT-ON* */
 
+static void
+upf_show_rules(vlib_main_t * vm, upf_dpi_app_t * app)
+{
+  u32 index = 0;
+  u32 rule_index = 0;
+  upf_dpi_rule_t *rule = NULL;
+
+  /* *INDENT-OFF* */
+  hash_foreach(rule_index, index, app->rules_by_id,
+  ({
+     rule = pool_elt_at_index(app->rules, index);
+     vlib_cli_output (vm, "---- Rule %u -----", rule->id);
+
+     if (rule->host)
+       vlib_cli_output (vm, "Host: %s", rule->host);
+  }));
+  /* *INDENT-ON* */
+}
+
 static clib_error_t *
 upf_show_app_command_fn (vlib_main_t * vm,
                          unformat_input_t * input,
@@ -1064,8 +1096,6 @@ upf_show_app_command_fn (vlib_main_t * vm,
   u8 *name = NULL;
   uword *p = NULL;
   clib_error_t *error = NULL;
-  u32 index = 0;
-  u32 rule_index = 0;
   upf_dpi_app_t *app = NULL;
   upf_main_t * sm = &upf_main;
 
@@ -1096,14 +1126,7 @@ upf_show_app_command_fn (vlib_main_t * vm,
 
   app = pool_elt_at_index (sm->upf_apps, p[0]);
 
-  /* *INDENT-OFF* */
-  hash_foreach(rule_index, index, app->rules_by_id,
-  ({
-     upf_dpi_rule_t *rule = NULL;
-     rule = pool_elt_at_index(app->rules, index);
-     vlib_cli_output (vm, "Rule %u", rule->id);
-  }));
-  /* *INDENT-ON* */
+  upf_show_rules(vm, app);
 
 done:
   vec_free (name);
@@ -1129,8 +1152,6 @@ upf_show_apps_command_fn (vlib_main_t * vm,
   upf_main_t * sm = &upf_main;
   u8 *name = NULL;
   u32 index = 0;
-  u32 index_2 = 0;
-  u32 rule_index = 0;
   int verbose = 0;
   clib_error_t *error = NULL;
   unformat_input_t _line_input, *line_input = &_line_input;
@@ -1166,12 +1187,7 @@ upf_show_apps_command_fn (vlib_main_t * vm,
 
      if (verbose)
        {
-         hash_foreach(rule_index, index_2, app->rules_by_id,
-         ({
-            upf_dpi_rule_t *rule = NULL;
-            rule = pool_elt_at_index(app->rules, index_2);
-            vlib_cli_output (vm, "Rule %u", rule->id);
-         }));
+         upf_show_rules(vm, app);
        }
   }));
   /* *INDENT-ON* */

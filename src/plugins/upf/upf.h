@@ -439,6 +439,7 @@ typedef struct {
 
 typedef struct {
   u32 id;
+  u8 *host;
 } upf_dpi_rule_t;
 
 typedef struct {
@@ -448,6 +449,12 @@ typedef struct {
   /* Rules vector */
   upf_dpi_rule_t *rules;
 } upf_dpi_app_t;
+
+typedef struct {
+  u8 *host;
+  u8 *src_ip;
+  u8 *dst_ip;
+} upf_rule_args_t;
 
 #define UPF_MAPPING_BUCKETS      1024
 #define UPF_MAPPING_MEMORY_SIZE  64 << 20
