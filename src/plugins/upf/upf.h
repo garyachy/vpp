@@ -440,6 +440,7 @@ typedef struct {
 typedef struct {
   u32 id;
   u8 *host;
+  u8 *path;
 } upf_dpi_rule_t;
 
 typedef struct {
@@ -452,6 +453,7 @@ typedef struct {
 
 typedef struct {
   u8 *host;
+  u8 *path;
   u8 *src_ip;
   u8 *dst_ip;
 } upf_rule_args_t;

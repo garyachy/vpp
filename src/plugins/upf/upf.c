@@ -959,6 +959,7 @@ vnet_upf_rule_add_del(u8 * app_name, u32 rule_index, u8 add,
       memset(rule, 0, sizeof(*rule));
       rule->id = rule_index;
       rule->host = vec_dup(args->host);
+      rule->path = vec_dup(args->path);
 
       hash_set_mem (app->rules_by_id,
                     &rule_index, rule - app->rules);
@@ -970,6 +971,7 @@ vnet_upf_rule_add_del(u8 * app_name, u32 rule_index, u8 add,
 
       rule = pool_elt_at_index (app->rules, p[0]);
       vec_free(rule->host);
+      vec_free(rule->path);
       hash_unset_mem (app->rules_by_id, &rule_index);
       pool_put (app->rules, rule);
     }
@@ -987,6 +989,7 @@ upf_application_rule_add_del_command_fn (vlib_main_t * vm,
   u8 *src_ip = NULL;
   u8 *dst_ip = NULL;
   u8 *host = NULL;
+  u8 *path = NULL;
   u32 rule_index = 0;
   clib_error_t *error = NULL;
   int rv = 0;
@@ -1010,7 +1013,22 @@ upf_application_rule_add_del_command_fn (vlib_main_t * vm,
           else if (unformat (line_input, "add"))
             {
               add = 1;
-              break;
+
+              if (unformat (line_input, "ip dst %s", &dst_ip))
+                break;
+              else if (unformat (line_input, "ip src %s", &src_ip))
+                break;
+              else if (unformat (line_input, "l7 http host %s", &host))
+                {
+                  if (unformat (line_input, "path %s", &path))
+                    break;
+                }
+              else
+                {
+                  error = clib_error_return (0, "unknown input `%U'",
+                                             format_unformat_error, input);
+                  goto done;
+                }
             }
           else
             {
@@ -1028,6 +1046,7 @@ upf_application_rule_add_del_command_fn (vlib_main_t * vm,
     }
 
   rule_args.host = host;
+  rule_args.path = path;
   rule_args.src_ip = src_ip;
   rule_args.dst_ip = dst_ip;
 
@@ -1053,6 +1072,8 @@ upf_application_rule_add_del_command_fn (vlib_main_t * vm,
 done:
   vec_free (dst_ip);
   vec_free (src_ip);
+  vec_free (host);
+  vec_free (path);
   vec_free (app_name);
   unformat_free (line_input);
 
@@ -1063,7 +1084,7 @@ done:
 VLIB_CLI_COMMAND (upf_application_rule_add_del_command, static) =
 {
   .path = "upf application",
-  .short_help = "upf application <name> rule <id> [ l7 http host <regex> | del ]",
+  .short_help = "upf application <name> rule <id> (add | del) [ip src <ip> | dst <ip>] [l7 http host <regex> path <path>] ",
   .function = upf_application_rule_add_del_command_fn,
 };
 /* *INDENT-ON* */
@@ -1079,10 +1100,13 @@ upf_show_rules(vlib_main_t * vm, upf_dpi_app_t * app)
   hash_foreach(rule_index, index, app->rules_by_id,
   ({
      rule = pool_elt_at_index(app->rules, index);
-     vlib_cli_output (vm, "---- Rule %u -----", rule->id);
+     vlib_cli_output (vm, "rule: %u", rule->id);
 
      if (rule->host)
-       vlib_cli_output (vm, "Host: %s", rule->host);
+       vlib_cli_output (vm, "host: %s", rule->host);
+
+     if (rule->path)
+       vlib_cli_output (vm, "path: %s", rule->path);
   }));
   /* *INDENT-ON* */
 }
@@ -1183,7 +1207,7 @@ upf_show_apps_command_fn (vlib_main_t * vm,
   ({
      upf_dpi_app_t *app = NULL;
      app = pool_elt_at_index(sm->upf_apps, index);
-     vlib_cli_output (vm, "%s", app->name);
+     vlib_cli_output (vm, "app: %s", app->name);
 
      if (verbose)
        {
