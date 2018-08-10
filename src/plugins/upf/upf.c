@@ -984,7 +984,7 @@ upf_application_rule_add_del_command_fn (vlib_main_t * vm,
   u32 rule_index = 0;
   clib_error_t *error = NULL;
   int rv = 0;
-  int add = 0;
+  int add = 1;
 
   /* Get a line of input. */
   if (!unformat_user (input, unformat_line_input, line_input))
@@ -1000,10 +1000,16 @@ upf_application_rule_add_del_command_fn (vlib_main_t * vm,
               add = 0;
               break;
             }
-          else
+          else if (unformat (line_input, "add"))
             {
               add = 1;
               break;
+            }
+          else
+            {
+              error = clib_error_return (0, "unknown input `%U'",
+                                         format_unformat_error, input);
+              goto done;
             }
         }
       else
@@ -1090,8 +1096,6 @@ upf_show_app_command_fn (vlib_main_t * vm,
 
   app = pool_elt_at_index (sm->upf_apps, p[0]);
 
-  vlib_cli_output (vm, "Rules:");
-
   /* *INDENT-OFF* */
   hash_foreach(rule_index, index, app->rules_by_id,
   ({
@@ -1125,6 +1129,33 @@ upf_show_apps_command_fn (vlib_main_t * vm,
   upf_main_t * sm = &upf_main;
   u8 *name = NULL;
   u32 index = 0;
+  u32 index_2 = 0;
+  u32 rule_index = 0;
+  int verbose = 0;
+  clib_error_t *error = NULL;
+  unformat_input_t _line_input, *line_input = &_line_input;
+
+  /* Get a line of input. */
+  if (unformat_user (input, unformat_line_input, line_input))
+    {
+      while (unformat_check_input (line_input) != UNFORMAT_END_OF_INPUT)
+        {
+          if (unformat (line_input, "verbose"))
+            {
+              verbose = 1;
+              break;
+            }
+          else
+            {
+              error = clib_error_return (0, "unknown input `%U'",
+                                         format_unformat_error, input);
+              unformat_free (line_input);
+              return error;
+            }
+        }
+
+      unformat_free (line_input);
+    }
 
   /* *INDENT-OFF* */
   hash_foreach(name, index, sm->upf_app_by_name,
@@ -1132,6 +1163,16 @@ upf_show_apps_command_fn (vlib_main_t * vm,
      upf_dpi_app_t *app = NULL;
      app = pool_elt_at_index(sm->upf_apps, index);
      vlib_cli_output (vm, "%s", app->name);
+
+     if (verbose)
+       {
+         hash_foreach(rule_index, index_2, app->rules_by_id,
+         ({
+            upf_dpi_rule_t *rule = NULL;
+            rule = pool_elt_at_index(app->rules, index_2);
+            vlib_cli_output (vm, "Rule %u", rule->id);
+         }));
+       }
   }));
   /* *INDENT-ON* */
 
