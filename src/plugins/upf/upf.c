@@ -33,6 +33,10 @@
 
 /* Action function shared between message handler and debug CLI */
 
+static int
+vnet_upf_rule_add_del(u8 * app_name, u32 rule_index, u8 add,
+                      upf_rule_args_t * args);
+
 int upf_enable_disable (upf_main_t * sm, u32 sw_if_index,
 			  int enable_disable)
 {
@@ -778,6 +782,8 @@ vnet_upf_app_add_del(u8 * name, u8 add)
 {
   upf_main_t *sm = &upf_main;
   upf_dpi_app_t *app = NULL;
+  u32 index = 0;
+  u32 rule_index = 0;
   uword *p = NULL;
 
   p = hash_get_mem (sm->upf_app_by_name, name);
@@ -802,6 +808,16 @@ vnet_upf_app_add_del(u8 * name, u8 add)
 
       hash_unset_mem (sm->upf_app_by_name, name);
       app = pool_elt_at_index (sm->upf_apps, p[0]);
+
+      /* *INDENT-OFF* */
+      hash_foreach(rule_index, index, app->rules_by_id,
+      ({
+         upf_dpi_rule_t *rule = NULL;
+         rule = pool_elt_at_index(app->rules, index);
+         vnet_upf_rule_add_del(app->name, rule->id, 0, NULL);
+      }));
+      /* *INDENT-ON* */
+
       vec_free (app->name);
       hash_free(app->rules_by_id);
       pool_free(app->rules);
@@ -935,7 +951,7 @@ VLIB_CLI_COMMAND (upf_delete_app_command, static) =
 
 static int
 vnet_upf_rule_add_del(u8 * app_name, u32 rule_index, u8 add,
-                      upf_rule_args_t *args)
+                      upf_rule_args_t * args)
 {
   upf_main_t *sm = &upf_main;
   uword *p = NULL;
