@@ -37,6 +37,28 @@ static int
 vnet_upf_rule_add_del(u8 * app_name, u32 rule_index, u8 add,
                       upf_rule_args_t * args);
 
+static int
+vnet_upf_app_add_del(u8 * name, u8 add);
+
+int upf_app_add_del (upf_main_t * sm, u8 * name, int add)
+{
+  int rv = 0;
+
+  rv = vnet_upf_app_add_del(name, add);
+
+  return rv;
+}
+
+int upf_rule_add_del (upf_main_t * sm, u8 * name, u32 id,
+                      int add, upf_rule_args_t * args)
+{
+  int rv = 0;
+
+  rv = vnet_upf_rule_add_del(name, id, add, args);
+
+  return rv;
+}
+
 int upf_enable_disable (upf_main_t * sm, u32 sw_if_index,
 			  int enable_disable)
 {

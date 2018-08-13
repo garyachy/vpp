@@ -70,8 +70,11 @@ setup_message_id_table (upf_main_t * sm, api_main_t * am)
 #undef _
 }
 
-#define foreach_upf_plugin_api_msg		\
-_(UPF_ENABLE_DISABLE, upf_enable_disable)
+#define foreach_upf_plugin_api_msg        \
+_(UPF_ENABLE_DISABLE, upf_enable_disable) \
+_(UPF_APP_ADD_DEL, upf_app_add_del) \
+_(UPF_APP_IP_RULE_ADD_DEL, upf_app_ip_rule_add_del) \
+_(UPF_APP_L7_RULE_ADD_DEL, upf_app_l7_rule_add_del)
 
 /* API message handler */
 static void vl_api_upf_enable_disable_t_handler
@@ -85,6 +88,51 @@ static void vl_api_upf_enable_disable_t_handler
 				      (int) (mp->enable_disable));
 
   REPLY_MACRO(VL_API_UPF_ENABLE_DISABLE_REPLY);
+}
+
+/* API message handler */
+static void vl_api_upf_app_add_del_t_handler
+(vl_api_upf_app_add_del_t * mp)
+{
+  vl_api_upf_app_add_del_reply_t * rmp = NULL;
+  upf_main_t * sm = &upf_main;
+  int rv = 0;
+
+  rv = upf_app_add_del (sm, mp->name, (int) (mp->is_add));
+
+  REPLY_MACRO(VL_API_UPF_APP_ADD_DEL_REPLY);
+}
+
+/* API message handler */
+static void vl_api_upf_app_ip_rule_add_del_t_handler
+(vl_api_upf_app_ip_rule_add_del_t * mp)
+{
+  vl_api_upf_app_ip_rule_add_del_reply_t * rmp = NULL;
+  upf_rule_args_t args = {};
+  upf_main_t * sm = &upf_main;
+  int rv = 0;
+
+  rv = upf_rule_add_del (sm, mp->app, mp->id,
+                         (int) (mp->is_add), &args);
+
+  REPLY_MACRO(VL_API_UPF_APP_IP_RULE_ADD_DEL_REPLY);
+}
+
+/* API message handler */
+static void vl_api_upf_app_l7_rule_add_del_t_handler
+(vl_api_upf_app_l7_rule_add_del_t * mp)
+{
+  vl_api_upf_app_l7_rule_add_del_reply_t * rmp = NULL;
+  upf_rule_args_t args = {};
+  upf_main_t * sm = &upf_main;
+  int rv = 0;
+
+  args.host = mp->host;
+  args.path = mp->path;
+  rv = upf_rule_add_del (sm, mp->app, mp->id, 
+                         (int) (mp->is_add), &args);
+
+  REPLY_MACRO(VL_API_UPF_APP_L7_RULE_ADD_DEL_REPLY);
 }
 
 /* Set up the API message handling tables */

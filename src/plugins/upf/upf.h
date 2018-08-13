@@ -533,6 +533,10 @@ int upf_enable_disable (upf_main_t * sm, u32 sw_if_index,
 u8 * format_upf_encap_trace (u8 * s, va_list * args);
 void gtpu_send_end_marker(upf_far_forward_t * forward);
 
+int upf_app_add_del (upf_main_t * sm, u8 * name, int add);
+int upf_rule_add_del (upf_main_t * sm, u8 * name, u32 id,
+                      int add, upf_rule_args_t * args);
+
 #endif /* __included_upf_h__ */
 
 /*
