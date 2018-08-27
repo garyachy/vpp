@@ -245,6 +245,7 @@ typedef struct {
   pfcp_f_teid_t teid;
   pfcp_ue_ip_address_t ue_addr;
   acl_rule_t acl;
+  u32 app_id;
 } upf_pdi_t;
 
 /* Packet Detection Rules */
@@ -536,6 +537,8 @@ void gtpu_send_end_marker(upf_far_forward_t * forward);
 int upf_app_add_del (upf_main_t * sm, u8 * name, int add);
 int upf_rule_add_del (upf_main_t * sm, u8 * name, u32 id,
                       int add, upf_rule_args_t * args);
+
+int upf_app_run_rules(u32 app_id);
 
 #endif /* __included_upf_h__ */
 

@@ -54,7 +54,12 @@ upf_plugin_la_SOURCES = \
   upf/upf_pfcp.h \
   upf/upf_pfcp_api.h \
   upf/upf_http_redirect_server.h \
-  upf/upf_http_redirect_server.c
+  upf/upf_http_redirect_server.c \
+  upf/flowdata.h \
+  upf/flowtable.h \
+  upf/flowtable_impl.c \
+  upf/flowtable_impl.h \
+  upf/flowtable_tcp.h
 
 API_FILES += upf/upf.api
 
