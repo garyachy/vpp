@@ -27,7 +27,7 @@ u64 flow_id = 0;
 flowtable_main_t flowtable_main;
 
 static clib_error_t *
-flowtable_init_cpu(flowtable_main_t *fm, flowtable_main_per_cpu_t * fmt)
+flowtable_init_session(flowtable_main_t *fm, flowtable_per_session_t * fmt)
 {
     int i;
     flow_entry_t * f;
@@ -69,44 +69,40 @@ flowtable_init_cpu(flowtable_main_t *fm, flowtable_main_per_cpu_t * fmt)
 clib_error_t *
 flowtable_init(vlib_main_t * vm)
 {
-    u32 cpu_index;
-    clib_error_t * error = 0;
-    flowtable_main_t * fm = &flowtable_main;
-    vlib_thread_main_t * tm = vlib_get_thread_main();
+  clib_error_t * error = 0;
+  flowtable_main_t * fm = &flowtable_main;
 
-    fm->vlib_main = vm;
-    fm->vnet_main = vnet_get_main ();
+  fm->vlib_main = vm;
+  fm->vnet_main = vnet_get_main ();
 
-    /* By default, forward packets to ethernet-input */
-    fm->next_node_index = FT_NEXT_ETHERNET_INPUT;
+  /* By default, forward packets to ethernet-input */
+  fm->next_node_index = FT_NEXT_ETHERNET_INPUT;
 
-    /* ensures flow_info structure fits into vlib_buffer_t's opaque 1 field */
-    ASSERT(sizeof(flow_data_t) <= 6 * sizeof(u32));
+  /* ensures flow_info structure fits into vlib_buffer_t's opaque 1 field */
+  ASSERT(sizeof(flow_data_t) <= 6 * sizeof(u32));
 
-    /* init flow pool */
-    fm->flows_max = FM_POOL_COUNT;
-    pool_alloc_aligned(fm->flows, fm->flows_max, CLIB_CACHE_LINE_BYTES);
-    pthread_spin_init(&fm->flows_lock, PTHREAD_PROCESS_PRIVATE);
-    fm->flows_cpt = 0;
+  /* init flow pool */
+  fm->flows_max = FM_POOL_COUNT;
+  pool_alloc_aligned(fm->flows, fm->flows_max, CLIB_CACHE_LINE_BYTES);
+  pthread_spin_init(&fm->flows_lock, PTHREAD_PROCESS_PRIVATE);
+  fm->flows_cpt = 0;
 
-    /* init timeout msg pool */
-    pool_alloc(fm->msg_pool, TIMEOUT_MSG_QUEUE_SZ);
-    pthread_spin_init(&fm->msg_lock, PTHREAD_PROCESS_PRIVATE);
+  /* init timeout msg pool */
+  pool_alloc(fm->msg_pool, TIMEOUT_MSG_QUEUE_SZ);
+  pthread_spin_init(&fm->msg_lock, PTHREAD_PROCESS_PRIVATE);
 
-    /* XXX what's the best way to do this ? */
-    fm->msg_pool = calloc(TIMEOUT_MSG_QUEUE_SZ, sizeof(timeout_msg_t));
-    fm->first_msg_index = ~0;
-    fm->last_msg_index = 0;
+  /* XXX what's the best way to do this ? */
+  fm->msg_pool = calloc(TIMEOUT_MSG_QUEUE_SZ, sizeof(timeout_msg_t));
+  fm->first_msg_index = ~0;
+  fm->last_msg_index = 0;
 
-    vec_validate(fm->per_cpu, tm->n_vlib_mains - 1);
-    for (cpu_index = 0; cpu_index < tm->n_vlib_mains; cpu_index++)
-    {
-        error = flowtable_init_cpu(fm, &fm->per_cpu[cpu_index]);
-        if (error)
-            return error;
-    }
+  vec_validate(fm->per_session, 1);
 
+  error = flowtable_init_session(fm, &fm->per_session[0]);
+  if (error)
     return error;
+
+  return error;
 }
 
 int
@@ -117,8 +113,7 @@ flowtable_update(u8 is_ip4, u8 ip_src[16], u8 ip_dst[16], u8 ip_upper_proto,
     flow_entry_t * flow;
     BVT(clib_bihash_kv) kv;
     flowtable_main_t * fm = &flowtable_main;
-    vlib_thread_main_t * tm = vlib_get_thread_main();
-    uword cpu_index;
+    uword session_index;
 
     if (is_ip4)
     {
@@ -141,9 +136,9 @@ flowtable_update(u8 is_ip4, u8 ip_src[16], u8 ip_dst[16], u8 ip_upper_proto,
     kv.key = hash_signature(&sig);
 
     /* TODO: recover handoff dispatch fun to get the correct node index */
-    for (cpu_index = 0; cpu_index < tm->n_vlib_mains; cpu_index++)
+    for (session_index = 0; session_index < ARRAY_LEN(fm->per_session); session_index++)
     {
-        flowtable_main_per_cpu_t * fmt = &fm->per_cpu[cpu_index];
+        flowtable_per_session_t * fmt = &fm->per_session[session_index];
         if (fmt == NULL)
             continue;
 

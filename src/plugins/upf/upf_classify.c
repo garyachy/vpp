@@ -121,7 +121,7 @@ upf_classify (vlib_main_t * vm, vlib_node_runtime_t * node,
   BVT(clib_bihash_kv) kv;
   int created = 0;
   flowtable_main_t * fm = &flowtable_main;
-  flowtable_main_per_cpu_t * fmt = &fm->per_cpu[0];
+  flowtable_per_session_t * fmt = &fm->per_session[0];
 
   u32 current_time =
       (u32) ((u64) fm->vlib_main->cpu_time_last_node_dispatch /
@@ -197,7 +197,14 @@ upf_classify (vlib_main_t * vm, vlib_node_runtime_t * node,
 		    {
 		      vnet_buffer (b)->gtpu.pdr_idx = pdr - active->pdr;
 		      far = sx_get_far_by_id(active, pdr->far_id);
-					upf_app_run_rules(pdr->pdi.app_id);
+					
+					pfcp_application_id_t *app_id;
+
+					vec_foreach(app_id, pdr->pdi.app_id)
+						{
+							upf_app_run_rules(*app_id);
+						}
+					
 		    }
 			
 		}

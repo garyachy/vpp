@@ -190,7 +190,7 @@ typedef struct {
 } pfcp_sdf_filter_t;
 
 #define PFCP_IE_APPLICATION_ID				24
-typedef u32 pfcp_application_id_t;
+typedef u8 * pfcp_application_id_t;
 
 #define PFCP_IE_GATE_STATUS				25
 typedef u32 pfcp_gate_status_t;
@@ -663,7 +663,7 @@ typedef struct
   pfcp_network_instance_t network_instance;
   pfcp_ue_ip_address_t ue_ip_address;
   pfcp_sdf_filter_t sdf_filter;
-  pfcp_application_id_t application_id;
+  pfcp_application_id_t *application_id;
 } pfcp_pdi_t;
 
 enum {

@@ -156,7 +156,7 @@ timeout_msg_get(flowtable_main_t * fm)
 }
 
 always_inline void
-flow_entry_cache_fill(flowtable_main_t * fm, flowtable_main_per_cpu_t * fmt)
+flow_entry_cache_fill(flowtable_main_t * fm, flowtable_per_session_t * fmt)
 {
     int i;
     flow_entry_t * f;
@@ -180,7 +180,7 @@ flow_entry_cache_fill(flowtable_main_t * fm, flowtable_main_per_cpu_t * fmt)
 }
 
 always_inline void
-flow_entry_cache_empty(flowtable_main_t * fm, flowtable_main_per_cpu_t * fmt)
+flow_entry_cache_empty(flowtable_main_t * fm, flowtable_per_session_t * fmt)
 {
     int i;
 
@@ -198,7 +198,7 @@ flow_entry_cache_empty(flowtable_main_t * fm, flowtable_main_per_cpu_t * fmt)
 }
 
 always_inline flow_entry_t *
-flow_entry_alloc(flowtable_main_t * fm, flowtable_main_per_cpu_t * fmt)
+flow_entry_alloc(flowtable_main_t * fm, flowtable_per_session_t * fmt)
 {
     u32 f_index;
     flow_entry_t * f;
@@ -216,7 +216,7 @@ flow_entry_alloc(flowtable_main_t * fm, flowtable_main_per_cpu_t * fmt)
 }
 
 always_inline void
-flow_entry_free(flowtable_main_t * fm, flowtable_main_per_cpu_t * fmt, flow_entry_t * f)
+flow_entry_free(flowtable_main_t * fm, flowtable_per_session_t * fmt, flow_entry_t * f)
 {
     vec_add1(fmt->flow_cache, f - fm->flows);
 
@@ -225,7 +225,7 @@ flow_entry_free(flowtable_main_t * fm, flowtable_main_per_cpu_t * fmt, flow_entr
 }
 
 always_inline void
-flowtable_entry_remove(flowtable_main_per_cpu_t * fmt, flow_entry_t * f)
+flowtable_entry_remove(flowtable_per_session_t * fmt, flow_entry_t * f)
 {
     /* remove node from hashtable */
     clib_dlist_remove(fmt->ht_lines, f->ht_index);
@@ -266,7 +266,7 @@ queue_expiration_message(flowtable_main_t * fm, u32 ctx_id, flow_stats_t * stats
 }
 
 always_inline void
-expire_single_flow(flowtable_main_t * fm, flowtable_main_per_cpu_t * fmt,
+expire_single_flow(flowtable_main_t * fm, flowtable_per_session_t * fmt,
         flow_entry_t * f, dlist_elt_t * e)
 {
     ASSERT(f->timer_index == (e - fmt->timers));
@@ -284,7 +284,7 @@ expire_single_flow(flowtable_main_t * fm, flowtable_main_per_cpu_t * fmt,
 }
 
 always_inline u64
-flowtable_timer_expire(flowtable_main_t * fm, flowtable_main_per_cpu_t * fmt,
+flowtable_timer_expire(flowtable_main_t * fm, flowtable_per_session_t * fmt,
     u32 now)
 {
     u64 expire_cpt;
@@ -316,7 +316,7 @@ flowtable_timer_expire(flowtable_main_t * fm, flowtable_main_per_cpu_t * fmt,
 }
 
 always_inline void
-timer_wheel_insert_flow(flowtable_main_per_cpu_t * fmt, flow_entry_t * f)
+timer_wheel_insert_flow(flowtable_per_session_t * fmt, flow_entry_t * f)
 {
     u32 timer_slot_head_index;
 
@@ -325,7 +325,7 @@ timer_wheel_insert_flow(flowtable_main_per_cpu_t * fmt, flow_entry_t * f)
 }
 
 always_inline void
-timer_wheel_resched_flow(flowtable_main_per_cpu_t * fmt, flow_entry_t * f, u32 now)
+timer_wheel_resched_flow(flowtable_per_session_t * fmt, flow_entry_t * f, u32 now)
 {
     clib_dlist_remove(fmt->timers, f->timer_index);
     f->expire = now + f->lifetime;
@@ -335,7 +335,7 @@ timer_wheel_resched_flow(flowtable_main_per_cpu_t * fmt, flow_entry_t * f, u32 n
 }
 
 static void
-recycle_flow(flowtable_main_t * fm, flowtable_main_per_cpu_t * fmt, u32 now)
+recycle_flow(flowtable_main_t * fm, flowtable_per_session_t * fmt, u32 now)
 {
     u32 next;
 
@@ -366,7 +366,7 @@ recycle_flow(flowtable_main_t * fm, flowtable_main_per_cpu_t * fmt, u32 now)
 
 /* TODO: replace with a more appropriate hashtable */
 static inline flow_entry_t *
-flowtable_entry_lookup_create(flowtable_main_t * fm, flowtable_main_per_cpu_t * fmt,
+flowtable_entry_lookup_create(flowtable_main_t * fm, flowtable_per_session_t * fmt,
     BVT(clib_bihash_kv) * kv, flow_signature_t const * sig, u32 const now, int * created)
 {
     flow_entry_t * f;
@@ -444,7 +444,7 @@ flowtable_entry_lookup_create(flowtable_main_t * fm, flowtable_main_per_cpu_t * 
 }
 
 static inline void
-timer_wheel_index_update(flowtable_main_per_cpu_t * fmt, u32 now)
+timer_wheel_index_update(flowtable_per_session_t * fmt, u32 now)
 {
     u32 new_index = now % TIMER_MAX_LIFETIME;
 

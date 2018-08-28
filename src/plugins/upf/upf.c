@@ -34,16 +34,24 @@
 #include "flowtable.h"
 #include <upf/flowtable_impl.h>
 
+static void
+foreach_upf_flows (BVT (clib_bihash_kv) * kvp, void * arg);
+
 int 
-upf_app_run_rules(u32 app_id)
+upf_app_run_rules(u8 * app_name)
 {
   upf_main_t *sm = &upf_main;
   upf_dpi_app_t *app = NULL;
   u32 index = 0;
   u32 rule_index = 0;
   upf_dpi_rule_t *rule = NULL;
+  uword *p = NULL;
 
-  app = pool_elt_at_index (sm->upf_apps, app_id);
+  p = hash_get_mem (sm->upf_app_by_name, app_name);
+  if (!p)
+    return VNET_API_ERROR_NO_SUCH_ENTRY;
+
+  app = pool_elt_at_index (sm->upf_apps, p[0]);
 
   /* *INDENT-OFF* */
   hash_foreach(rule_index, index, app->rules_by_id,
@@ -762,6 +770,10 @@ upf_show_session_command_fn (vlib_main_t * vm,
   ip46_address_t cp_ip;
   u8 has_cp_f_seid = 0, has_up_seid = 0;
   upf_session_t *sess;
+  flowtable_main_t *fm = &flowtable_main;
+  flowtable_per_session_t *fmt = NULL;
+  u32 session_id = 0;
+  u8 has_flows = 0;
 
   if (unformat_user (main_input, unformat_line_input, line_input))
     {
@@ -777,6 +789,8 @@ upf_show_session_command_fn (vlib_main_t * vm,
 	    has_up_seid = 1;
 	  else if (unformat (line_input, "up seid 0x%lx", &up_seid))
 	    has_up_seid = 1;
+		else if (unformat (line_input, "%u flows", &session_id))
+	    has_flows = 1;
 	  else {
 	    error = unformat_parse_error (line_input);
 	    unformat_free (line_input);
@@ -808,6 +822,19 @@ upf_show_session_command_fn (vlib_main_t * vm,
 	({
 	  vlib_cli_output (vm, "%U", format_sx_session, sess, SX_ACTIVE);
 	}));
+
+  if (has_flows)
+    {
+      fmt = &fm->per_session[session_id];
+      if (fmt == NULL)
+        {
+          error = clib_error_return (0, "session id does not exist");
+          goto done;
+        }
+    
+      BV (clib_bihash_foreach_key_value_pair) (&fmt->flows_ht,
+                                               foreach_upf_flows, vm);
+    }
 
  done:
   return error;
@@ -1299,7 +1326,7 @@ foreach_upf_flows (BVT (clib_bihash_kv) * kvp, void * arg)
   vlib_main_t *vm = arg;
   u32 ht_line_head_index = (u32) kvp->value;
   flowtable_main_t * fm = &flowtable_main;
-  flowtable_main_per_cpu_t * fmt = &fm->per_cpu[0];
+  flowtable_per_session_t * fmt = &fm->per_session[0];
 
   if (dlist_is_empty(fmt->ht_lines, ht_line_head_index))
     return;
@@ -1325,29 +1352,6 @@ foreach_upf_flows (BVT (clib_bihash_kv) * kvp, void * arg)
                        flow->expire);
     }
 }
-
-static clib_error_t *
-upf_show_flows_command_fn (vlib_main_t * vm,
-                           unformat_input_t * input,
-                           vlib_cli_command_t * cmd)
-{
-  flowtable_main_t * fm = &flowtable_main;
-  flowtable_main_per_cpu_t * fmt = &fm->per_cpu[0];
-
-  BV (clib_bihash_foreach_key_value_pair) (&fmt->flows_ht,
-                                      foreach_upf_flows, vm);
-
-  return NULL;
-}
-
-/* *INDENT-OFF* */
-VLIB_CLI_COMMAND (upf_show_flows_command, static) =
-{
-  .path = "show upf flows",
-  .short_help = "show upf flows",
-  .function = upf_show_flows_command_fn,
-};
-/* *INDENT-ON* */
 
 static clib_error_t * upf_init (vlib_main_t * vm)
 {

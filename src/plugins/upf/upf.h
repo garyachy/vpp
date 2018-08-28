@@ -245,7 +245,7 @@ typedef struct {
   pfcp_f_teid_t teid;
   pfcp_ue_ip_address_t ue_addr;
   acl_rule_t acl;
-  u32 app_id;
+  pfcp_application_id_t *app_id;
 } upf_pdi_t;
 
 /* Packet Detection Rules */
@@ -538,7 +538,7 @@ int upf_app_add_del (upf_main_t * sm, u8 * name, int add);
 int upf_rule_add_del (upf_main_t * sm, u8 * name, u32 id,
                       int add, upf_rule_args_t * args);
 
-int upf_app_run_rules(u32 app_id);
+int upf_app_run_rules(u8 * app_name);
 
 #endif /* __included_upf_h__ */
 

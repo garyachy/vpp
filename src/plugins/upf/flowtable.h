@@ -159,7 +159,7 @@ typedef struct {
      * set cache size to 256 so that the worst node run fills the cache at most once */
 #define FLOW_CACHE_SZ 256
     u32 * flow_cache;
-} flowtable_main_per_cpu_t;
+} flowtable_per_session_t;
 
 /*
  * As advised in the thread below :
@@ -185,8 +185,8 @@ typedef struct {
     u32 first_msg_index;
     u32 last_msg_index;
 
-    /* per cpu */
-    flowtable_main_per_cpu_t * per_cpu;
+    /* per session */
+    flowtable_per_session_t * per_session;
 
     /* flowtable node index */
     u32 flowtable_index;

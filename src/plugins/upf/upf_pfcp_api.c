@@ -859,7 +859,13 @@ static int handle_create_pdr(upf_session_t *sess, pfcp_create_pdr_t *create_pdr,
 	if (ISSET_BIT(pdr->pdi.grp.fields, PDI_APPLICATION_ID))
 		{
 			create->pdi.fields |= F_PDI_APPLICATION_ID;
-			create->pdi.app_id = pdr->pdi.application_id;
+
+			pfcp_application_id_t *app_id;
+	
+			vec_foreach(app_id, pdr->pdi.application_id)
+				{
+					vec_add1(create->pdi.app_id, *app_id);
+				}
 		}
 
       create->outer_header_removal = OPT(pdr, CREATE_PDR_OUTER_HEADER_REMOVAL,
