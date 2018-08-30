@@ -197,6 +197,7 @@ help:
 	@echo " test-cov            - generate code coverage report for test framework"
 	@echo " test-wipe-cov       - wipe code coverage report for test framework"
 	@echo " test-checkstyle     - check PEP8 compliance for test framework"
+	@echo " hyperscan-install   - install hyperscan regex library"
 	@echo ""
 	@echo "Make Arguments:"
 	@echo " V=[0|1]                  - set build verbosity level"
@@ -473,6 +474,9 @@ checkstyle:
 
 fixstyle:
 	@build-root/scripts/checkstyle.sh --fix
+
+hyperscan-install:
+	make -C hyperscan
 
 #
 # Build the documentation

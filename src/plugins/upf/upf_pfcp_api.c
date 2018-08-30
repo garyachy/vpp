@@ -39,6 +39,7 @@
 #include "upf_pfcp.h"
 #include "upf_pfcp_server.h"
 #include "upf_pfcp_api.h"
+#include "dpi.h"
 
 #if CLIB_DEBUG > 0
 #define gtp_debug clib_warning
@@ -865,6 +866,8 @@ static int handle_create_pdr(upf_session_t *sess, pfcp_create_pdr_t *create_pdr,
 			vec_foreach(app_id, pdr->pdi.application_id)
 				{
 					vec_add1(create->pdi.app_id, *app_id);
+					upf_add_multi_regex(create->pdi.app_id, &create->dpi_db_id, 1);
+					vec_free(create->pdi.app_id);
 				}
 		}
 
@@ -979,6 +982,21 @@ static int handle_update_pdr(upf_session_t *sess, pfcp_update_pdr_t *update_pdr,
 	      break;
 	    }
 	}
+
+		if (ISSET_BIT(pdr->pdi.grp.fields, PDI_APPLICATION_ID))
+			{
+				update->pdi.fields |= F_PDI_APPLICATION_ID;
+	
+				pfcp_application_id_t *app_id;
+		
+				vec_foreach(app_id, pdr->pdi.application_id)
+					{
+						vec_add1(update->pdi.app_id, *app_id);
+						upf_add_multi_regex(update->pdi.app_id, &update->dpi_db_id, 0);
+						vec_free(update->pdi.app_id);
+					}
+			}
+
       update->outer_header_removal = OPT(pdr, UPDATE_PDR_OUTER_HEADER_REMOVAL,
 					 outer_header_removal, ~0);
       update->far_id = OPT(pdr, UPDATE_PDR_FAR_ID, far_id, ~0);
@@ -1018,6 +1036,12 @@ static int handle_remove_pdr(upf_session_t *sess, pfcp_remove_pdr_t *remove_pdr,
 
   vec_foreach(pdr, remove_pdr)
     {
+    upf_pdr_t *delete;
+
+    delete = sx_get_pdr(sess, SX_PENDING, pdr->pdr_id);
+    if (delete)
+      upf_dpi_remove(delete->dpi_db_id);
+ 
       if ((r = sx_delete_pdr(sess, pdr->pdr_id)) != 0)
 	{
 	  fformat(stderr, "Failed to add PDR %d\n", pdr->pdr_id);

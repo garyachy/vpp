@@ -36,6 +36,8 @@
 #include <upf/flowtable.h>
 #include <upf/flowtable_impl.h>
 
+#include <upf/dpi.h>
+
 #if CLIB_DEBUG > 0
 #define gtp_debug clib_warning
 #else
@@ -197,14 +199,9 @@ upf_classify (vlib_main_t * vm, vlib_node_runtime_t * node,
 		    {
 		      vnet_buffer (b)->gtpu.pdr_idx = pdr - active->pdr;
 		      far = sx_get_far_by_id(active, pdr->far_id);
-					
-					pfcp_application_id_t *app_id;
 
-					vec_foreach(app_id, pdr->pdi.app_id)
-						{
-							upf_app_run_rules(*app_id);
-						}
-					
+					u32 app_index = 0;
+					upf_dpi_lookup(pdr->dpi_db_id, "test", 4, &app_index);
 		    }
 			
 		}

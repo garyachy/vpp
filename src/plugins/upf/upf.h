@@ -257,6 +257,7 @@ typedef struct {
   u8 outer_header_removal;
   u16 far_id;
   u16 *urr_ids;
+  u32 dpi_db_id;
 } upf_pdr_t;
 
 /* Forward Action Rules - Forwarding Parameters */
@@ -538,7 +539,7 @@ int upf_app_add_del (upf_main_t * sm, u8 * name, int add);
 int upf_rule_add_del (upf_main_t * sm, u8 * name, u32 id,
                       int add, upf_rule_args_t * args);
 
-int upf_app_run_rules(u8 * app_name);
+int upf_add_multi_regex(u8 ** apps, u32 * db_index, u8 create);
 
 #endif /* __included_upf_h__ */
 

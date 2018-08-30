@@ -33,32 +33,55 @@
 
 #include "flowtable.h"
 #include <upf/flowtable_impl.h>
+#include <upf/dpi.h>
 
 static void
 foreach_upf_flows (BVT (clib_bihash_kv) * kvp, void * arg);
 
-int 
-upf_app_run_rules(u8 * app_name)
+static void
+upf_add_rules(u32 app_index, upf_dpi_app_t *app, upf_dpi_args_t * args)
 {
-  upf_main_t *sm = &upf_main;
-  upf_dpi_app_t *app = NULL;
   u32 index = 0;
   u32 rule_index = 0;
   upf_dpi_rule_t *rule = NULL;
-  uword *p = NULL;
-
-  p = hash_get_mem (sm->upf_app_by_name, app_name);
-  if (!p)
-    return VNET_API_ERROR_NO_SUCH_ENTRY;
-
-  app = pool_elt_at_index (sm->upf_apps, p[0]);
 
   /* *INDENT-OFF* */
   hash_foreach(rule_index, index, app->rules_by_id,
   ({
      rule = pool_elt_at_index(app->rules, index);
+
+     if (rule->path)
+       {
+         vec_add1(args->indecies, app_index);
+         vec_add1(args->rules, (const char*)rule->path);
+         vec_add1(args->flags, 0);
+       }
   }));
   /* *INDENT-ON* */
+}
+
+int
+upf_add_multi_regex(u8 ** apps, u32 * db_index, u8 create)
+{
+  uword *p = NULL;
+  u8 **app_name = NULL;
+  u32 index = 0;
+  upf_dpi_args_t args;
+  upf_main_t * sm = &upf_main;
+  upf_dpi_app_t *app = NULL;
+
+  vec_foreach (app_name, apps)
+    {
+      p = hash_get_mem (sm->upf_app_by_name, *app_name);
+
+      if (p)
+        {
+          app = pool_elt_at_index(sm->upf_apps, p[0]);
+          upf_add_rules(index, app, &args);
+        }
+    }
+
+  upf_dpi_add_multi_regex(&args, db_index, create);
 
   return 0;
 }

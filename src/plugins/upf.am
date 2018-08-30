@@ -34,6 +34,9 @@ upf_plugin_la_LDFLAGS += -Wl,-lnuma
 upf_plugin_la_LDFLAGS += -Wl,-lm,-ldl
 upf_plugin_la_LIBADD =
 
+upf_plugin_la_CFLAGS += -I/usr/local/include/hs/
+upf_plugin_la_LDFLAGS += -lhs
+
 upf_plugin_la_SOURCES = \
   upf/node.c \
   upf/pfcp.h \
@@ -59,7 +62,9 @@ upf_plugin_la_SOURCES = \
   upf/flowtable.h \
   upf/flowtable_impl.c \
   upf/flowtable_impl.h \
-  upf/flowtable_tcp.h
+  upf/flowtable_tcp.h \
+  upf/dpi.c \
+  upf/dpi.h
 
 API_FILES += upf/upf.api
 
