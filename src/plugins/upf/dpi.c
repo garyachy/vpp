@@ -38,6 +38,9 @@ upf_dpi_add_multi_regex(upf_dpi_args_t * args, u32 * db_index, u8 create)
   upf_dpi_entry_t *entry = NULL;
   hs_compile_error_t *compile_err = NULL;
 
+  if (vec_len(args->rules) == 0)
+    return -1;
+
   if (!create)
     {
       entry = pool_elt_at_index (upf_dpi_db, * db_index);
@@ -99,6 +102,9 @@ upf_dpi_lookup(u32 db_index, const char * str, uint16_t length, u32 * app_index)
 {
   upf_dpi_entry_t *entry = NULL;
   int ret = 0;
+
+  if (!upf_dpi_db)
+    return -1;
 
   entry = pool_elt_at_index (upf_dpi_db, db_index);
   if (!entry)

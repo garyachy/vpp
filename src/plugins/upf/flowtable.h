@@ -124,7 +124,8 @@ typedef struct flow_entry {
      * the plugins_data field */
     flow_data_t infos;
 
-    u8 *app_name;
+    /* L7 app index */
+    u32 app_index;
 } flow_entry_t;
 
 /* Timers (in seconds) */

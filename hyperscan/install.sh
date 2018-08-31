@@ -31,4 +31,7 @@ cmake -DBUILD_SHARED_LIBS=true ..
 make
 make install
 
+echo "/usr/local/lib" > /etc/ld.so.conf.d/usr-local.conf
+ldconfig
+
 fi

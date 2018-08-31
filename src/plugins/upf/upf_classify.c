@@ -124,6 +124,7 @@ upf_classify (vlib_main_t * vm, vlib_node_runtime_t * node,
   int created = 0;
   flowtable_main_t * fm = &flowtable_main;
   flowtable_per_session_t * fmt = &fm->per_session[0];
+  int res = 0;
 
   u32 current_time =
       (u32) ((u64) fm->vlib_main->cpu_time_last_node_dispatch /
@@ -201,7 +202,9 @@ upf_classify (vlib_main_t * vm, vlib_node_runtime_t * node,
 		      far = sx_get_far_by_id(active, pdr->far_id);
 
 					u32 app_index = 0;
-					upf_dpi_lookup(pdr->dpi_db_id, "test", 4, &app_index);
+					res = upf_dpi_lookup(pdr->dpi_db_id, "test", 4, &app_index);
+					if (res == 0)
+						flow->app_index = app_index;
 		    }
 			
 		}
