@@ -30,6 +30,11 @@ typedef struct {
   hs_scratch_t *scratch;
 } upf_dpi_entry_t;
 
+typedef struct {
+  int res;
+  u32 id;
+} upf_dpi_cb_args_t;
+
 static upf_dpi_entry_t *upf_dpi_db = NULL;
 
 int
@@ -111,9 +116,10 @@ upf_dpi_event_handler(unsigned int id, unsigned long long from,
   (void) to;
   (void) flags;
 
-  u32 *app_id = (u32*)ctx;
+  upf_dpi_cb_args_t *args = (upf_dpi_cb_args_t*)ctx;
 
-  *app_id = id;
+  args->id = id;
+  args->res = 1;
 
   return 0;
 }
@@ -123,6 +129,7 @@ upf_dpi_lookup(u32 db_index, u8 * str, uint16_t length, u32 * app_index)
 {
   upf_dpi_entry_t *entry = NULL;
   int ret = 0;
+  upf_dpi_cb_args_t args = {};
 
   if (!upf_dpi_db)
     return -1;
@@ -132,11 +139,14 @@ upf_dpi_lookup(u32 db_index, u8 * str, uint16_t length, u32 * app_index)
     return -1;
 
   ret = hs_scan(entry->database, (const char*)str, length, 0, entry->scratch,
-                upf_dpi_event_handler, (void*)app_index);
-    if (ret != HS_SUCCESS)
-    {
-      return -1;
-    }
+                upf_dpi_event_handler, (void*)&args);
+  if (ret != HS_SUCCESS)
+    return -1;
+
+  if (args.res == 0)
+    return -1;
+
+  *app_index = args.id;
 
   return 0;
 }

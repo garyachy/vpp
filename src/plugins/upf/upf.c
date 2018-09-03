@@ -184,7 +184,11 @@ upf_dpi_url_test_command_fn (vlib_main_t * vm,
     {
       app = pool_elt_at_index (sm->upf_apps, app_index);
       if (app)
-        vlib_cli_output (vm, "app %s", app->name);
+        vlib_cli_output (vm, "Matched app: %s", app->name);
+    }
+  else
+    {
+      vlib_cli_output (vm, "No match found");
     }
 
 done:
