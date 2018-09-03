@@ -70,6 +70,7 @@ upf_add_multi_regex(u8 ** apps, u32 * db_index, u8 create)
   upf_dpi_args_t *args = NULL;
   upf_main_t * sm = &upf_main;
   upf_dpi_app_t *app = NULL;
+  int res = 0;
 
   vec_foreach (app_name, apps)
     {
@@ -85,10 +86,10 @@ upf_add_multi_regex(u8 ** apps, u32 * db_index, u8 create)
   if (!args)
     return -1;
 
-  upf_dpi_add_multi_regex(args, db_index, create);
+  res = upf_dpi_add_multi_regex(args, db_index, create);
   vec_free(args);
 
-  return 0;
+  return res;
 }
 
 static clib_error_t *
@@ -101,6 +102,7 @@ upf_dpi_app_add_command_fn (vlib_main_t * vm,
   clib_error_t *error = NULL;
   u8 **apps = NULL;
   u32 id = 0;
+  int res = 0;
 
   /* Get a line of input. */
   if (!unformat_user (input, unformat_line_input, line_input))
@@ -121,10 +123,13 @@ upf_dpi_app_add_command_fn (vlib_main_t * vm,
     }
 
   vec_add1(apps, name);
-  upf_add_multi_regex(apps, &id, 1);
+  res = upf_add_multi_regex(apps, &id, 1);
   vec_free(apps);
 
-  vlib_cli_output (vm, "DB id %u", id);
+  if (res == 0)
+    vlib_cli_output (vm, "DB id %u", id);
+  else
+    vlib_cli_output (vm, "Could not build DPI DB  ");
 
 done:
   vec_free (name);
@@ -139,6 +144,62 @@ VLIB_CLI_COMMAND (upf_dpi_app_add_command, static) =
   .path = "upf dpi app add",
   .short_help = "upf dpi app add <name>",
   .function = upf_dpi_app_add_command_fn,
+};
+/* *INDENT-ON* */
+
+static clib_error_t *
+upf_dpi_url_test_command_fn (vlib_main_t * vm,
+                             unformat_input_t * input,
+                             vlib_cli_command_t * cmd)
+{
+  unformat_input_t _line_input, *line_input = &_line_input;
+  u8 *url = NULL;
+  clib_error_t *error = NULL;
+  u32 app_index = 0;
+  u32 id = 0;
+  int res = 0;
+  upf_dpi_app_t *app = NULL;
+  upf_main_t * sm = &upf_main;
+
+  /* Get a line of input. */
+  if (!unformat_user (input, unformat_line_input, line_input))
+    return error;
+
+  while (unformat_check_input (line_input) != UNFORMAT_END_OF_INPUT)
+    {
+      if (unformat (line_input, "%u url %s", &id, &url))
+        {
+          break;
+        }
+      else
+        {
+          error = clib_error_return (0, "unknown input `%U'",
+          format_unformat_error, input);
+          goto done;
+        }
+    }
+
+  res = upf_dpi_lookup(id, url, vec_len(url), &app_index);
+  if (res == 0)
+    {
+      app = pool_elt_at_index (sm->upf_apps, app_index);
+      if (app)
+        vlib_cli_output (vm, "app %s", app->name);
+    }
+
+done:
+  vec_free (url);
+  unformat_free (line_input);
+
+  return error;
+}
+
+/* *INDENT-OFF* */
+VLIB_CLI_COMMAND (upf_dpi_url_test_command, static) =
+{
+  .path = "upf dpi test db",
+  .short_help = "upf dpi test db <id> url <url>",
+  .function = upf_dpi_url_test_command_fn,
 };
 /* *INDENT-ON* */
 

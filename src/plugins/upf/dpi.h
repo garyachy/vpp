@@ -26,7 +26,7 @@ typedef struct {
 } upf_dpi_args_t;
 
 int upf_dpi_add_multi_regex(upf_dpi_args_t * args, u32 * db_index, u8 create);
-int upf_dpi_lookup(u32 db_index, const char * str, uint16_t length, u32 * app_index);
+int upf_dpi_lookup(u32 db_index, u8 * str, uint16_t length, u32 * app_index);
 int upf_dpi_remove(u32 db_index);
 
 #endif /* __included_upf_dpi_h__ */

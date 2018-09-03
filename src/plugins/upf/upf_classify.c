@@ -202,7 +202,8 @@ upf_classify (vlib_main_t * vm, vlib_node_runtime_t * node,
 		      far = sx_get_far_by_id(active, pdr->far_id);
 
 					u32 app_index = 0;
-					res = upf_dpi_lookup(pdr->dpi_db_id, "test", 4, &app_index);
+					u8 *url = NULL;
+					res = upf_dpi_lookup(pdr->dpi_db_id, url, vec_len(url), &app_index);
 					if (res == 0)
 						flow->app_index = app_index;
 		    }

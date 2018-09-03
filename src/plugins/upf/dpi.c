@@ -75,7 +75,7 @@ upf_dpi_add_multi_regex(upf_dpi_args_t * args, u32 * db_index, u8 create)
     {
       vec_add1(ids, arg->index);
       vec_add1(expressions, (const char*)arg->rule);
-      vec_add1(flags, 0);
+      vec_add1(flags, HS_FLAG_DOTALL);
     }
 
   if (hs_compile_multi(expressions, flags, ids, vec_len(args),
@@ -119,7 +119,7 @@ upf_dpi_event_handler(unsigned int id, unsigned long long from,
 }
 
 int
-upf_dpi_lookup(u32 db_index, const char * str, uint16_t length, u32 * app_index)
+upf_dpi_lookup(u32 db_index, u8 * str, uint16_t length, u32 * app_index)
 {
   upf_dpi_entry_t *entry = NULL;
   int ret = 0;
@@ -131,7 +131,7 @@ upf_dpi_lookup(u32 db_index, const char * str, uint16_t length, u32 * app_index)
   if (!entry)
     return -1;
 
-  ret = hs_scan(entry->database, str, length, 0, entry->scratch,
+  ret = hs_scan(entry->database, (const char*)str, length, 0, entry->scratch,
                 upf_dpi_event_handler, (void*)app_index);
     if (ret != HS_SUCCESS)
     {
