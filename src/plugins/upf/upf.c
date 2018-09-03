@@ -39,11 +39,12 @@ static void
 foreach_upf_flows (BVT (clib_bihash_kv) * kvp, void * arg);
 
 static void
-upf_add_rules(u32 app_index, upf_dpi_app_t *app, upf_dpi_args_t * args)
+upf_add_rules(u32 app_index, upf_dpi_app_t *app, upf_dpi_args_t ** args)
 {
   u32 index = 0;
   u32 rule_index = 0;
   upf_dpi_rule_t *rule = NULL;
+  upf_dpi_args_t arg;
 
   /* *INDENT-OFF* */
   hash_foreach(rule_index, index, app->rules_by_id,
@@ -52,9 +53,9 @@ upf_add_rules(u32 app_index, upf_dpi_app_t *app, upf_dpi_args_t * args)
 
      if (rule->path)
        {
-         vec_add1(args->indecies, app_index);
-         vec_add1(args->rules, (const char*)rule->path);
-         vec_add1(args->flags, 0);
+         arg.index = app_index;
+         arg.rule = rule->path;
+         vec_add1(*args, arg);
        }
   }));
   /* *INDENT-ON* */
@@ -66,7 +67,7 @@ upf_add_multi_regex(u8 ** apps, u32 * db_index, u8 create)
   uword *p = NULL;
   u8 **app_name = NULL;
   u32 index = 0;
-  upf_dpi_args_t args;
+  upf_dpi_args_t *args = NULL;
   upf_main_t * sm = &upf_main;
   upf_dpi_app_t *app = NULL;
 
@@ -81,7 +82,11 @@ upf_add_multi_regex(u8 ** apps, u32 * db_index, u8 create)
         }
     }
 
-  upf_dpi_add_multi_regex(&args, db_index, create);
+  if (!args)
+    return -1;
+
+  upf_dpi_add_multi_regex(args, db_index, create);
+  vec_free(args);
 
   return 0;
 }

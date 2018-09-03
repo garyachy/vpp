@@ -19,12 +19,10 @@
 #define __included_upf_dpi_h__
 
 typedef struct {
-  /* App indecies vector */
-  u32 *indecies;
-  /* Regex expressions vector */
-  const char **rules;
-  /* Flags vector */
-  u32 *flags;
+  /* App index */
+  u32 index;
+  /* Regex expression */
+  u8 *rule;
 } upf_dpi_args_t;
 
 int upf_dpi_add_multi_regex(upf_dpi_args_t * args, u32 * db_index, u8 create);

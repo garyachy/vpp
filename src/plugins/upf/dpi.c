@@ -37,8 +37,16 @@ upf_dpi_add_multi_regex(upf_dpi_args_t * args, u32 * db_index, u8 create)
 {
   upf_dpi_entry_t *entry = NULL;
   hs_compile_error_t *compile_err = NULL;
+  u32 *ids = NULL;
+  const char **expressions = NULL;
+  u32 *flags = NULL;
+  upf_dpi_args_t *arg = NULL;
+  int error = 0;
 
-  if (vec_len(args->rules) == 0)
+  if (!args)
+    return -1;
+
+  if (vec_len(args) == 0)
     return -1;
 
   if (!create)
@@ -63,22 +71,35 @@ upf_dpi_add_multi_regex(upf_dpi_args_t * args, u32 * db_index, u8 create)
       *db_index = entry - upf_dpi_db;
     }
 
-  if (hs_compile_multi(args->rules, args->flags,
-                       args->indecies, vec_len(args->rules),
+  vec_foreach (arg, args)
+    {
+      vec_add1(ids, arg->index);
+      vec_add1(expressions, (const char*)arg->rule);
+      vec_add1(flags, 0);
+    }
+
+  if (hs_compile_multi(expressions, flags, ids, vec_len(args),
                        HS_MODE_BLOCK, NULL, &entry->database,
                        &compile_err) != HS_SUCCESS)
     {
-      return -1;
+      error = -1;
+      goto done;
     }
 
   if (hs_alloc_scratch(entry->database, &entry->scratch) != HS_SUCCESS)
     {
       hs_free_database(entry->database);
       entry->database = NULL;
-      return -1;
+      error = -1;
+      goto done;
     }
 
-  return 0;
+done:
+  vec_free(expressions);
+  vec_free(flags);
+  vec_free(ids);
+
+  return error;
 }
 
 static int
