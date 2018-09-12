@@ -945,6 +945,20 @@ upf_show_session_command_fn (vlib_main_t * vm,
       unformat_free (line_input);
     }
 
+  if (has_flows)
+    {
+      fmt = &fm->per_session[session_id];
+      if (fmt == NULL)
+        {
+          error = clib_error_return (0, "session id does not exist");
+          goto done;
+        }
+    
+      BV (clib_bihash_foreach_key_value_pair) (&fmt->flows_ht,
+                                               foreach_upf_flows, vm);
+      goto done;
+    }
+
   if (has_cp_f_seid)
     {
       error = clib_error_return (0, "CP F_SEID is not supported, yet");
@@ -966,19 +980,6 @@ upf_show_session_command_fn (vlib_main_t * vm,
 	({
 	  vlib_cli_output (vm, "%U", format_sx_session, sess, SX_ACTIVE);
 	}));
-
-  if (has_flows)
-    {
-      fmt = &fm->per_session[session_id];
-      if (fmt == NULL)
-        {
-          error = clib_error_return (0, "session id does not exist");
-          goto done;
-        }
-    
-      BV (clib_bihash_foreach_key_value_pair) (&fmt->flows_ht,
-                                               foreach_upf_flows, vm);
-    }
 
  done:
   return error;

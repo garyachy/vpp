@@ -159,8 +159,6 @@ upf_classify (vlib_main_t * vm, vlib_node_runtime_t * node,
 
 	  b = vlib_get_buffer (vm, bi);
 
-		vlib_buffer_advance(b, sizeof(gtpu_header_t));
-
 		kv.key = compute_packet_hash(b, is_ip4, &is_reverse, &sig);
 		flow = flowtable_entry_lookup_create(fm, fmt, &kv, &sig, current_time, &created);
 
@@ -168,8 +166,6 @@ upf_classify (vlib_main_t * vm, vlib_node_runtime_t * node,
 		{
 			continue;
 		}
-
-		vlib_buffer_advance(b, -sizeof(gtpu_header_t));
 
 	  /* Get next node index and adj index from tunnel next_dpo */
 	  sidx = vnet_buffer (b)->gtpu.session_index;
