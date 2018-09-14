@@ -33,6 +33,7 @@
 #include <upf/upf_pfcp.h>
 #include <upf/upf_http_redirect_server.h>
 
+#include <vppinfra/bihash_8_8.h>
 #include <upf/flowtable.h>
 #include <upf/flowtable_impl.h>
 
@@ -123,13 +124,8 @@ upf_classify (vlib_main_t * vm, vlib_node_runtime_t * node,
   BVT(clib_bihash_kv) kv;
   int created = 0;
   flowtable_main_t * fm = &flowtable_main;
-  flowtable_per_session_t * fmt = &fm->per_session[0];
   int res = 0;
-
-  u32 current_time =
-      (u32) ((u64) fm->vlib_main->cpu_time_last_node_dispatch /
-      fm->vlib_main->clib_time.clocks_per_second);
-  timer_wheel_index_update(fmt, current_time);
+  clib_error_t * error = NULL;
 
   next_index = node->cached_next_index;
   stats_sw_if_index = node->runtime_data[0];
@@ -159,17 +155,31 @@ upf_classify (vlib_main_t * vm, vlib_node_runtime_t * node,
 
 	  b = vlib_get_buffer (vm, bi);
 
+	  /* Get next node index and adj index from tunnel next_dpo */
+	  sidx = vnet_buffer (b)->gtpu.session_index;
+	  sess = pool_elt_at_index (gtm->sessions, sidx);
+
 		kv.key = compute_packet_hash(b, is_ip4, &is_reverse, &sig);
-		flow = flowtable_entry_lookup_create(fm, fmt, &kv, &sig, current_time, &created);
+
+		if (!sess->fmt.ht_lines)
+    {
+      error = flowtable_init_session(fm, &sess->fmt);
+      if (error)
+        continue;
+    }
+
+    u32 current_time =
+        (u32) ((u64) fm->vlib_main->cpu_time_last_node_dispatch /
+        fm->vlib_main->clib_time.clocks_per_second);
+ 
+    timer_wheel_index_update(&sess->fmt, current_time);
+
+		flow = flowtable_entry_lookup_create(fm, &sess->fmt, &kv, &sig, current_time, &created);
 
 		if (!flow)
 		{
 			continue;
 		}
-
-	  /* Get next node index and adj index from tunnel next_dpo */
-	  sidx = vnet_buffer (b)->gtpu.session_index;
-	  sess = pool_elt_at_index (gtm->sessions, sidx);
 
 	  next = UPF_CLASSIFY_NEXT_DROP;
 	  active = sx_get_rules(sess, SX_ACTIVE);

@@ -26,7 +26,7 @@
 u64 flow_id = 0;
 flowtable_main_t flowtable_main;
 
-static clib_error_t *
+clib_error_t *
 flowtable_init_session(flowtable_main_t *fm, flowtable_per_session_t * fmt)
 {
     int i;
@@ -96,15 +96,10 @@ flowtable_init(vlib_main_t * vm)
   fm->first_msg_index = ~0;
   fm->last_msg_index = 0;
 
-  vec_validate(fm->per_session, 1);
-
-  error = flowtable_init_session(fm, &fm->per_session[0]);
-  if (error)
-    return error;
-
   return error;
 }
 
+#if 0
 int
 flowtable_update(u8 is_ip4, u8 ip_src[16], u8 ip_dst[16], u8 ip_upper_proto,
     u16 port_src, u16 port_dst, u16 lifetime, u8 offloaded, u8 infos[16])
@@ -182,3 +177,4 @@ flowtable_update(u8 is_ip4, u8 ip_src[16], u8 ip_dst[16], u8 ip_upper_proto,
 
     return 0;
 }
+#endif

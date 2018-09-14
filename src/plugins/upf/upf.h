@@ -30,6 +30,10 @@
 
 #include "pfcp.h"
 
+#include "flowtable_impl.h"
+#include "flowtable.h"
+
+
 #define BUFFER_HAS_GTP_HDR  (1<<0)
 #define BUFFER_HAS_UDP_HDR  (1<<1)
 #define BUFFER_HAS_IP4_HDR  (1<<2)
@@ -380,6 +384,9 @@ typedef struct {
   /* vnet intfc index */
   u32 sw_if_index;
   u32 hw_if_index;
+
+  /* flow table*/
+  flowtable_per_session_t fmt;
 } upf_session_t;
 
 

@@ -913,10 +913,7 @@ upf_show_session_command_fn (vlib_main_t * vm,
   u64 cp_seid, up_seid;
   ip46_address_t cp_ip;
   u8 has_cp_f_seid = 0, has_up_seid = 0;
-  upf_session_t *sess;
-  flowtable_main_t *fm = &flowtable_main;
-  flowtable_per_session_t *fmt = NULL;
-  u32 session_id = 0;
+  upf_session_t *sess = NULL;
   u8 has_flows = 0;
 
   if (unformat_user (main_input, unformat_line_input, line_input))
@@ -933,7 +930,9 @@ upf_show_session_command_fn (vlib_main_t * vm,
 	    has_up_seid = 1;
 	  else if (unformat (line_input, "up seid 0x%lx", &up_seid))
 	    has_up_seid = 1;
-		else if (unformat (line_input, "%u flows", &session_id))
+		else if (unformat (line_input, "%lu flows", &up_seid))
+	    has_flows = 1;
+		else if (unformat (line_input, "0x%lx flows", &up_seid))
 	    has_flows = 1;
 	  else {
 	    error = unformat_parse_error (line_input);
@@ -947,15 +946,14 @@ upf_show_session_command_fn (vlib_main_t * vm,
 
   if (has_flows)
     {
-      fmt = &fm->per_session[session_id];
-      if (fmt == NULL)
+      if (!(sess = sx_lookup(up_seid)))
         {
-          error = clib_error_return (0, "session id does not exist");
+          error = clib_error_return (0, "Sessions 0x%lx not found", up_seid);
           goto done;
         }
-    
-      BV (clib_bihash_foreach_key_value_pair) (&fmt->flows_ht,
-                                               foreach_upf_flows, vm);
+
+      BV (clib_bihash_foreach_key_value_pair) (&sess->fmt.flows_ht,
+                                               foreach_upf_flows, &sess->fmt);
       goto done;
     }
 
@@ -1463,19 +1461,20 @@ VLIB_CLI_COMMAND (upf_show_apps_command, static) =
 /* *INDENT-ON* */
 
 static void
-foreach_upf_flows (BVT (clib_bihash_kv) * kvp, void * arg)
+foreach_upf_flows (BVT (clib_bihash_kv) * kvp,
+                   void * arg)
 {
   dlist_elt_t *ht_line = NULL;
   u32 index = 0;
   flow_entry_t *flow = NULL;
-  vlib_main_t *vm = arg;
+  flowtable_per_session_t *fmt = arg;
   u32 ht_line_head_index = (u32) kvp->value;
   flowtable_main_t * fm = &flowtable_main;
-  flowtable_per_session_t * fmt = &fm->per_session[0];
   upf_dpi_app_t *app = NULL;
   const char *app_name = NULL;
   const char *none = "None";
   upf_main_t * sm = &upf_main;
+  vlib_main_t *vm = sm->vlib_main;
 
   if (dlist_is_empty(fmt->ht_lines, ht_line_head_index))
     return;

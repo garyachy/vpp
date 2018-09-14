@@ -37,8 +37,10 @@ typedef struct {
 clib_error_t *
 flowtable_init(vlib_main_t * vm);
 
+#if 0
 int flowtable_update(u8 is_ip4, u8 ip_src[16], u8 ip_dst[16], u8 ip_upper_proto,
     u16 port_src, u16 port_dst, u16 lifetime, u8 offloaded, u8 infos[16]);
+#endif
 
 always_inline u64
 hash_signature(flow_signature_t const * sig)
@@ -540,5 +542,8 @@ flow_update_lifetime(flow_entry_t * f, vlib_buffer_t * buffer)
 
     return 0;
 }
+
+clib_error_t *
+flowtable_init_session(flowtable_main_t *fm, flowtable_per_session_t * fmt);
 
 #endif  /* __flowtable_impl_h__ */

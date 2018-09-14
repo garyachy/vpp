@@ -186,9 +186,6 @@ typedef struct {
     u32 first_msg_index;
     u32 last_msg_index;
 
-    /* per session */
-    flowtable_per_session_t * per_session;
-
     /* flowtable node index */
     u32 flowtable_index;
 
