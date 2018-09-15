@@ -249,7 +249,6 @@ typedef struct {
   pfcp_f_teid_t teid;
   pfcp_ue_ip_address_t ue_addr;
   acl_rule_t acl;
-  pfcp_application_id_t *app_id;
 } upf_pdi_t;
 
 /* Packet Detection Rules */
