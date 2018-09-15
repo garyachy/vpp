@@ -101,8 +101,11 @@ upf_dpi_app_add_command_fn (vlib_main_t * vm,
   u8 *name = NULL;
   clib_error_t *error = NULL;
   u8 **apps = NULL;
-  u32 id = 0;
   int res = 0;
+  u64 up_seid = 0;
+  upf_session_t *sess = NULL;
+  upf_pdr_t *pdr = NULL;
+  u16 pdr_id = 0;
 
   /* Get a line of input. */
   if (!unformat_user (input, unformat_line_input, line_input))
@@ -110,7 +113,13 @@ upf_dpi_app_add_command_fn (vlib_main_t * vm,
 
   while (unformat_check_input (line_input) != UNFORMAT_END_OF_INPUT)
     {
-      if (unformat (line_input, "%s", &name))
+      if (unformat (line_input, "session %lu pdr %u name %s",
+                    &up_seid, &pdr_id, &name))
+        {
+          break;
+        }
+      if (unformat (line_input, "session 0x%lx pdr %u name %s",
+                    &up_seid, &pdr_id, &name))
         {
           break;
         }
@@ -122,14 +131,28 @@ upf_dpi_app_add_command_fn (vlib_main_t * vm,
         }
     }
 
+  sess = sx_lookup(up_seid);
+  if (sess == NULL)
+    {
+      error = clib_error_return (0, "could not find a session");
+      goto done;
+    }
+
+  pdr = sx_get_pdr(sess, SX_ACTIVE, pdr_id);
+  if (pdr == NULL)
+    {
+      error = clib_error_return (0, "could not find a pdr");
+      goto done;
+    }
+
   vec_add1(apps, name);
-  res = upf_add_multi_regex(apps, &id, 1);
+  res = upf_add_multi_regex(apps, &pdr->dpi_db_id, 1);
   vec_free(apps);
 
   if (res == 0)
-    vlib_cli_output (vm, "DB id %u", id);
+    vlib_cli_output (vm, "DB id %u", pdr->dpi_db_id);
   else
-    vlib_cli_output (vm, "Could not build DPI DB  ");
+    vlib_cli_output (vm, "Could not build DPI DB");
 
 done:
   vec_free (name);
@@ -142,7 +165,7 @@ done:
 VLIB_CLI_COMMAND (upf_dpi_app_add_command, static) =
 {
   .path = "upf dpi app add",
-  .short_help = "upf dpi app add <name>",
+  .short_help = "upf dpi app add session <id> pdr <id> name <app name>",
   .function = upf_dpi_app_add_command_fn,
 };
 /* *INDENT-ON* */
