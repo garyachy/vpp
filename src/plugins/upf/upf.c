@@ -53,7 +53,7 @@ upf_add_rules(u32 app_index, upf_dpi_app_t *app, upf_dpi_args_t ** args)
 
      if (rule->path)
        {
-         arg.index = app_index;
+         arg.index = app_index + 1;
          arg.rule = rule->path;
          vec_add1(*args, arg);
        }
@@ -78,7 +78,8 @@ upf_add_multi_regex(u8 ** apps, u32 * db_index, u8 create)
 
       if (p)
         {
-          app = pool_elt_at_index(sm->upf_apps, p[0]);
+          index = p[0];
+          app = pool_elt_at_index(sm->upf_apps, index);
           upf_add_rules(index, app, &args);
         }
     }
@@ -146,7 +147,16 @@ upf_dpi_app_add_command_fn (vlib_main_t * vm,
     }
 
   vec_add1(apps, name);
-  res = upf_add_multi_regex(apps, &pdr->dpi_db_id, 1);
+
+  if (pdr->dpi_db_id > 0)
+    {
+      res = upf_add_multi_regex(apps, &pdr->dpi_db_id, 0);
+    }
+  else
+    {
+      res = upf_add_multi_regex(apps, &pdr->dpi_db_id, 1);
+    }
+
   vec_free(apps);
 
   if (res == 0)
@@ -203,11 +213,15 @@ upf_dpi_url_test_command_fn (vlib_main_t * vm,
     }
 
   res = upf_dpi_lookup(id, url, vec_len(url), &app_index);
-  if (res == 0)
+  if ((res == 0) && 
+      (app_index > 0) && 
+      (pool_elts(sm->upf_apps) >= app_index))
     {
-      app = pool_elt_at_index (sm->upf_apps, app_index);
+      app = pool_elt_at_index (sm->upf_apps, app_index - 1);
       if (app)
-        vlib_cli_output (vm, "Matched app: %s", app->name);
+        {
+          vlib_cli_output (vm, "Matched app: %s", app->name);
+        }
     }
   else
     {
@@ -227,6 +241,77 @@ VLIB_CLI_COMMAND (upf_dpi_url_test_command, static) =
   .path = "upf dpi test db",
   .short_help = "upf dpi test db <id> url <url>",
   .function = upf_dpi_url_test_command_fn,
+};
+/* *INDENT-ON* */
+
+static clib_error_t *
+upf_dpi_show_db_command_fn (vlib_main_t * vm,
+                            unformat_input_t * input,
+                            vlib_cli_command_t * cmd)
+{
+  unformat_input_t _line_input, *line_input = &_line_input;
+  clib_error_t *error = NULL;
+  u32 id = 0;
+  int res = 0;
+  regex_t *regex = NULL;
+  regex_t *expressions = NULL;
+  u32 *ids = NULL;
+  int i = 0;
+  u32 app_id = 0;
+  upf_dpi_app_t *app = NULL;
+  upf_main_t * sm = &upf_main;
+
+  /* Get a line of input. */
+  if (!unformat_user (input, unformat_line_input, line_input))
+    return error;
+
+  while (unformat_check_input (line_input) != UNFORMAT_END_OF_INPUT)
+    {
+      if (unformat (line_input, "%u", &id))
+        {
+          break;
+        }
+      else
+        {
+          error = clib_error_return (0, "unknown input `%U'",
+          format_unformat_error, input);
+          goto done;
+        }
+    }
+
+  res = upf_dpi_get_db_contents(id, &expressions, &ids);
+  if (res == 0)
+    {
+      for (i = 0; i < vec_len(expressions); i++)
+        {
+          regex = &expressions[i];
+          app_id = ids[i];
+
+          if ((app_id > 0) && 
+              (pool_elts(sm->upf_apps) >= app_id))
+            {
+              app = pool_elt_at_index (sm->upf_apps, app_id - 1);
+          }
+          vlib_cli_output (vm, "regex: %s, app: %s", *regex, app->name);
+        }
+    }
+  else
+    {
+      vlib_cli_output (vm, "Unknown DB id");
+    }
+
+done:
+  unformat_free (line_input);
+
+  return error;
+}
+
+/* *INDENT-OFF* */
+VLIB_CLI_COMMAND (upf_dpi_show_db_command, static) =
+{
+  .path = "show upf dpi db",
+  .short_help = "show upf dpi db <id>",
+  .function = upf_dpi_show_db_command_fn,
 };
 /* *INDENT-ON* */
 
@@ -1498,6 +1583,7 @@ foreach_upf_flows (BVT (clib_bihash_kv) * kvp,
   const char *none = "None";
   upf_main_t * sm = &upf_main;
   vlib_main_t *vm = sm->vlib_main;
+  u32 app_index = 0;
 
   if (dlist_is_empty(fmt->ht_lines, ht_line_head_index))
     return;
@@ -1511,8 +1597,14 @@ foreach_upf_flows (BVT (clib_bihash_kv) * kvp,
       flow = pool_elt_at_index(fm->flows, e->value);
       index = e->next;
 
-      if (sm->upf_apps)
-        app = pool_elt_at_index (sm->upf_apps, flow->app_index);
+      if (flow->app_index > 0)
+        {
+          if (pool_elts(sm->upf_apps) >= flow->app_index)
+            {
+              app_index = flow->app_index - 1;
+              app = pool_elt_at_index (sm->upf_apps, app_index);
+            }
+        }
 
       app_name = (app != NULL) ? (const char*)app->name : none;
 

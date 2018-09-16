@@ -30,6 +30,7 @@
 
 #include "pfcp.h"
 
+#include "dpi.h"
 #include "flowtable_impl.h"
 #include "flowtable.h"
 
@@ -447,8 +448,8 @@ typedef struct {
 
 typedef struct {
   u32 id;
-  u8 *host;
-  u8 *path;
+  regex_t host;
+  regex_t path;
 } upf_dpi_rule_t;
 
 typedef struct {
@@ -460,8 +461,8 @@ typedef struct {
 } upf_dpi_app_t;
 
 typedef struct {
-  u8 *host;
-  u8 *path;
+  regex_t host;
+  regex_t path;
   u8 *src_ip;
   u8 *dst_ip;
 } upf_rule_args_t;

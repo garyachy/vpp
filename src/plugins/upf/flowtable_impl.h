@@ -123,20 +123,20 @@ parse_ip6_packet(ip6_header_t * ip6, uword * is_reverse, struct ip6_sig * ip6_si
 }
 
 static inline u64
-compute_packet_hash(vlib_buffer_t * buffer, u8 is_ip4, uword * is_reverse,
+compute_packet_hash(u8 * packet, u8 is_ip4, uword * is_reverse,
                     flow_signature_t * sig)
 {
   if (PREDICT_TRUE(is_ip4))
     {
       sig->len = sizeof(struct ip4_sig);
-      parse_ip4_packet(vlib_buffer_get_current(buffer),
-              is_reverse, (struct ip4_sig *) sig);
+      parse_ip4_packet((ip4_header_t *)packet, is_reverse,
+                       (struct ip4_sig *) sig);
     }
   else
     {
       sig->len = sizeof(struct ip6_sig);
-      parse_ip6_packet(vlib_buffer_get_current(buffer),
-              is_reverse, (struct ip6_sig *) sig);
+      parse_ip6_packet((ip6_header_t *)packet, is_reverse,
+                       (struct ip6_sig *) sig);
     }
 
   return hash_signature(sig);
@@ -545,5 +545,42 @@ flow_update_lifetime(flow_entry_t * f, vlib_buffer_t * buffer)
 
 clib_error_t *
 flowtable_init_session(flowtable_main_t *fm, flowtable_per_session_t * fmt);
+
+always_inline int
+flowtable_get_flow(u8 * packet, flowtable_per_session_t * fmt,
+                   flow_entry_t **flow, int is_ip4)
+{
+  uword is_reverse = 0;
+  flow_signature_t sig;
+  BVT(clib_bihash_kv) kv;
+  int created = 0;
+  flowtable_main_t * fm = &flowtable_main;
+  clib_error_t * error = NULL;
+
+  kv.key = compute_packet_hash(packet, is_ip4, &is_reverse, &sig);
+
+  if (!fmt->ht_lines)
+    {
+      error = flowtable_init_session(fm, fmt);
+      if (error)
+        return -1;
+    }
+  
+  u32 current_time =
+      (u32) ((u64) fm->vlib_main->cpu_time_last_node_dispatch /
+      fm->vlib_main->clib_time.clocks_per_second);
+
+  timer_wheel_index_update(fmt, current_time);
+
+  *flow = flowtable_entry_lookup_create(fm, fmt, &kv, &sig,
+                                       current_time, &created);
+
+  if (!(*flow))
+    {
+      return -1;
+    }
+
+  return 0;
+}
 
 #endif  /* __flowtable_impl_h__ */

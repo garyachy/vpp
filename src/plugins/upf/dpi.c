@@ -26,6 +26,9 @@
 #include "upf/dpi.h"
 
 typedef struct {
+  regex_t *expressions;
+  u32 *ids;
+  u32 *flags;
   hs_database_t *database;
   hs_scratch_t *scratch;
 } upf_dpi_entry_t;
@@ -38,15 +41,36 @@ typedef struct {
 static upf_dpi_entry_t *upf_dpi_db = NULL;
 
 int
+upf_dpi_get_db_contents(u32 db_index, regex_t ** expressions, u32 ** ids)
+{
+  upf_dpi_entry_t *entry = NULL;
+
+  if (!db_index)
+    return -1;
+
+  if (pool_elts(upf_dpi_db) < db_index)
+    return -1;
+
+  db_index -= 1;
+
+  entry = pool_elt_at_index (upf_dpi_db, db_index);
+  if (!entry)
+    return -1;
+
+  *expressions = entry->expressions;
+  *ids = entry->ids;
+
+  return 0;
+}
+
+int
 upf_dpi_add_multi_regex(upf_dpi_args_t * args, u32 * db_index, u8 create)
 {
   upf_dpi_entry_t *entry = NULL;
   hs_compile_error_t *compile_err = NULL;
-  u32 *ids = NULL;
-  const char **expressions = NULL;
-  u32 *flags = NULL;
   upf_dpi_args_t *arg = NULL;
   int error = 0;
+  u32 index = 0;
 
   if (!args)
     return -1;
@@ -56,34 +80,42 @@ upf_dpi_add_multi_regex(upf_dpi_args_t * args, u32 * db_index, u8 create)
 
   if (!create)
     {
-      entry = pool_elt_at_index (upf_dpi_db, * db_index);
+      if (!*db_index)
+        return -1;
+
+      if (pool_elts(upf_dpi_db) < *db_index)
+        return -1;
+
+      index = *db_index - 1;
+      entry = pool_elt_at_index (upf_dpi_db, index);
       if (!entry)
         return -1;
 
-      if (entry->database)
-        {
-          hs_free_database(entry->database);
-          entry->database = NULL;
-        }
+      hs_free_database(entry->database);
+      entry->database = NULL;
+      hs_free_scratch(entry->scratch);
+      entry->scratch = NULL;
     }
   else
     {
       pool_get (upf_dpi_db, entry);
       if (!entry)
         return -1;
- 
+
       memset(entry, 0, sizeof(*entry));
-      *db_index = entry - upf_dpi_db;
+      index = entry - upf_dpi_db;
+      *db_index = index + 1;
     }
 
   vec_foreach (arg, args)
     {
-      vec_add1(ids, arg->index);
-      vec_add1(expressions, (const char*)arg->rule);
-      vec_add1(flags, HS_FLAG_DOTALL);
+      vec_add1(entry->ids, arg->index);
+      vec_add1(entry->expressions, arg->rule);
+      vec_add1(entry->flags, HS_FLAG_DOTALL);
     }
 
-  if (hs_compile_multi(expressions, flags, ids, vec_len(args),
+  if (hs_compile_multi((const char **)entry->expressions, entry->flags, entry->ids,
+                       vec_len(entry->expressions),
                        HS_MODE_BLOCK, NULL, &entry->database,
                        &compile_err) != HS_SUCCESS)
     {
@@ -100,10 +132,6 @@ upf_dpi_add_multi_regex(upf_dpi_args_t * args, u32 * db_index, u8 create)
     }
 
 done:
-  vec_free(expressions);
-  vec_free(flags);
-  vec_free(ids);
-
   return error;
 }
 
@@ -131,8 +159,13 @@ upf_dpi_lookup(u32 db_index, u8 * str, uint16_t length, u32 * app_index)
   int ret = 0;
   upf_dpi_cb_args_t args = {};
 
-  if (!upf_dpi_db)
+  if (!db_index)
     return -1;
+
+  if (pool_elts(upf_dpi_db) < db_index)
+    return -1;
+
+  db_index -= 1;
 
   entry = pool_elt_at_index (upf_dpi_db, db_index);
   if (!entry)
@@ -156,15 +189,25 @@ upf_dpi_remove(u32 db_index)
 {
   upf_dpi_entry_t *entry = NULL;
 
+  if (!db_index)
+    return -1;
+
+  if (pool_elts(upf_dpi_db) < db_index)
+    return -1;
+
+  db_index -= 1;
+
   entry = pool_elt_at_index (upf_dpi_db, db_index);
   if (!entry)
     return -1;
 
-  if (entry->database)
-    {
-      hs_free_database(entry->database);
-      entry->database = NULL;
-    }
+  hs_free_database(entry->database);
+  hs_free_scratch(entry->scratch);
+  vec_free(entry->expressions);
+  vec_free(entry->flags);
+  vec_free(entry->ids);
+
+  memset(entry, 0, sizeof(upf_dpi_entry_t));
 
   pool_put (upf_dpi_db, entry);
 

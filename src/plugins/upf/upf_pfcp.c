@@ -767,7 +767,11 @@ static void sx_free_rules(upf_session_t *sx, int rule)
   upf_urr_t *urr;
 
   vec_foreach (pdr, rules->pdr)
+  {
     vec_free(pdr->urr_ids);
+    upf_dpi_remove(pdr->dpi_db_id);
+  }
+
   vec_free(rules->pdr);
   vec_foreach (far, rules->far)
     {
