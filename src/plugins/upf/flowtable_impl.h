@@ -530,28 +530,26 @@ flow_tcp_update_lifetime(flow_entry_t * f, tcp_header_t * hdr)
 }
 
 always_inline int
-flow_update_lifetime(flow_entry_t * f, vlib_buffer_t * buffer)
+flow_update_lifetime(flow_entry_t * f, u8 * packet, int is_ip4)
 {
-    /*
-     * XXX: we already skipped the ethernet header
-     * CHECK-ME: assert we have enough wellformed data to read the tcp header.
-     */
-    if (f->sig.len == sizeof(struct ip4_sig))
+  if (is_ip4)
     {
-        vlib_buffer_advance(buffer, sizeof(ip4_header_t));
-
-        if (f->sig.s.ip4.proto == IP_PROTOCOL_TCP) {
-            return flow_tcp_update_lifetime(f, vlib_buffer_get_current(buffer));
+      if (f->sig.s.ip4.proto == IP_PROTOCOL_TCP)
+        {
+          ip4_header_t *ip4 = (ip4_header_t *)packet;
+          return flow_tcp_update_lifetime(f, ip4_next_header(ip4));
         }
-    } else if (f->sig.len == sizeof(struct ip6_sig))
+    }
+  else
     {
-        vlib_buffer_advance(buffer, sizeof(ip6_header_t));
-        if (f->sig.s.ip6.proto == IP_PROTOCOL_TCP) {
-            return flow_tcp_update_lifetime(f, vlib_buffer_get_current(buffer));
+      if (f->sig.s.ip6.proto == IP_PROTOCOL_TCP)
+        {
+          ip6_header_t *ip6 = (ip6_header_t *)packet;
+          return flow_tcp_update_lifetime(f, ip6_next_header(ip6));
         }
     }
 
-    return 0;
+  return 0;
 }
 
 clib_error_t *
@@ -559,7 +557,8 @@ flowtable_init_session(flowtable_main_t *fm, flowtable_per_session_t * fmt);
 
 always_inline int
 flowtable_get_flow(u8 * packet, flowtable_per_session_t * fmt,
-                   flow_entry_t **flow, int is_ip4, u8 direction)
+                   flow_entry_t **flow, int is_ip4, u8 direction,
+                   u32 current_time)
 {
   uword is_reverse = 0;
   flow_signature_t sig;
@@ -576,12 +575,6 @@ flowtable_get_flow(u8 * packet, flowtable_per_session_t * fmt,
       if (error)
         return -1;
     }
-  
-  u32 current_time =
-      (u32) ((u64) fm->vlib_main->cpu_time_last_node_dispatch /
-      fm->vlib_main->clib_time.clocks_per_second);
-
-  timer_wheel_index_update(fmt, current_time);
 
   *flow = flowtable_entry_lookup_create(fm, fmt, &kv, &sig,
                                         current_time, direction,
@@ -592,7 +585,21 @@ flowtable_get_flow(u8 * packet, flowtable_per_session_t * fmt,
       return -1;
     }
 
+  /* timer management */
+  if (flow_update_lifetime(*flow, packet, is_ip4))
+    {
+        timer_wheel_resched_flow(fmt, *flow , current_time);
+    }
+
   return 0;
+}
+
+always_inline void
+flowtable_timer_update(flowtable_per_session_t * fmt, u32 current_time)
+{
+  flowtable_main_t * fm = &flowtable_main;
+
+  flowtable_timer_expire(fm, fmt, current_time);
 }
 
 #endif  /* __flowtable_impl_h__ */

@@ -123,6 +123,9 @@ upf_classify (vlib_main_t * vm, vlib_node_runtime_t * node,
   stats_sw_if_index = node->runtime_data[0];
   stats_n_packets = stats_n_bytes = 0;
 
+  u32 current_time = (u32) ((u64) vm->cpu_time_last_node_dispatch /
+                             vm->clib_time.clocks_per_second);
+
   while (n_left_from > 0)
     {
       upf_pdr_t * pdr = NULL;
@@ -157,7 +160,7 @@ upf_classify (vlib_main_t * vm, vlib_node_runtime_t * node,
 
 	  pl = vlib_buffer_get_current(b) + vnet_buffer (b)->gtpu.data_offset;
 
-	  flowtable_get_flow(pl, &sess->fmt, &flow, is_ip4, direction);
+	  flowtable_get_flow(pl, &sess->fmt, &flow, is_ip4, direction, current_time);
 
 	  acl = is_ip4 ? active->sdf[direction].ip4 : active->sdf[direction].ip6;
 	  if (acl == NULL)
