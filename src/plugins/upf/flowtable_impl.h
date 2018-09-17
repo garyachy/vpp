@@ -368,8 +368,13 @@ recycle_flow(flowtable_main_t * fm, flowtable_per_session_t * fmt, u32 now)
 
 /* TODO: replace with a more appropriate hashtable */
 static inline flow_entry_t *
-flowtable_entry_lookup_create(flowtable_main_t * fm, flowtable_per_session_t * fmt,
-    BVT(clib_bihash_kv) * kv, flow_signature_t const * sig, u32 const now, int * created)
+flowtable_entry_lookup_create(flowtable_main_t * fm,
+                              flowtable_per_session_t * fmt,
+                              BVT(clib_bihash_kv) * kv,
+                              flow_signature_t const * sig,
+                              u32 const now,
+                              u8 direction,
+                              int * created)
 {
     flow_entry_t * f;
     dlist_elt_t * ht_line;
@@ -396,7 +401,10 @@ flowtable_entry_lookup_create(flowtable_main_t * fm, flowtable_per_session_t * f
             dlist_elt_t * e = pool_elt_at_index(fmt->ht_lines, index);
             f = pool_elt_at_index(fm->flows, e->value);
             if (PREDICT_TRUE(memcmp(&f->sig, sig, sig->len) == 0))
+              {
+                f->stats[direction].pkts++;
                 return f;
+              }
 
             index = e->next;
         }
@@ -428,6 +436,9 @@ flowtable_entry_lookup_create(flowtable_main_t * fm, flowtable_per_session_t * f
     f->sig_hash = kv->key;
     f->lifetime = TIMER_DEFAULT_LIFETIME;
     f->expire = now + TIMER_DEFAULT_LIFETIME;
+
+    /* update stats */
+    f->stats[direction].pkts++;
 
     /* insert in timer list */
     pool_get(fmt->timers, timer_entry);
@@ -548,7 +559,7 @@ flowtable_init_session(flowtable_main_t *fm, flowtable_per_session_t * fmt);
 
 always_inline int
 flowtable_get_flow(u8 * packet, flowtable_per_session_t * fmt,
-                   flow_entry_t **flow, int is_ip4)
+                   flow_entry_t **flow, int is_ip4, u8 direction)
 {
   uword is_reverse = 0;
   flow_signature_t sig;
@@ -573,7 +584,8 @@ flowtable_get_flow(u8 * packet, flowtable_per_session_t * fmt,
   timer_wheel_index_update(fmt, current_time);
 
   *flow = flowtable_entry_lookup_create(fm, fmt, &kv, &sig,
-                                       current_time, &created);
+                                        current_time, direction,
+                                        &created);
 
   if (!(*flow))
     {

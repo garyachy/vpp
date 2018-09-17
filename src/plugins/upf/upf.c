@@ -1608,14 +1608,16 @@ foreach_upf_flows (BVT (clib_bihash_kv) * kvp,
 
       app_name = (app != NULL) ? (const char*)app->name : none;
 
-      vlib_cli_output (vm, "%llu: proto 0x%x, %U(%u) <-> %U(%u), packets %u, app %s, ttl %u",
+      vlib_cli_output (vm, "%llu: proto 0x%x, %U(%u) <-> %U(%u),"
+                           "UL pkt %u, DL pkt %u, app %s, ttl %u",
                        flow->infos.data.flow_id,
                        flow->sig.s.ip4.proto,
                        format_ip4_address, &flow->sig.s.ip4.src,
                        ntohs(flow->sig.s.ip4.port_src),
                        format_ip4_address, &flow->sig.s.ip4.dst,
                        ntohs(flow->sig.s.ip4.port_dst),
-                       flow->stats[0].pkts + flow->stats[1].pkts,
+                       flow->stats[0].pkts,
+                       flow->stats[1].pkts,
                        app_name,
                        flow->expire);
     }

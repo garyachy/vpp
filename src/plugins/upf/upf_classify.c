@@ -157,7 +157,7 @@ upf_classify (vlib_main_t * vm, vlib_node_runtime_t * node,
 
 	  pl = vlib_buffer_get_current(b) + vnet_buffer (b)->gtpu.data_offset;
 
-	  flowtable_get_flow(pl, &sess->fmt, &flow, is_ip4);
+	  flowtable_get_flow(pl, &sess->fmt, &flow, is_ip4, direction);
 
 	  acl = is_ip4 ? active->sdf[direction].ip4 : active->sdf[direction].ip6;
 	  if (acl == NULL)
