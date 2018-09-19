@@ -397,6 +397,7 @@ upf_node_assoc_t *sx_new_association(pfcp_node_id_t *node_id)
 
   pool_get_aligned (gtm->nodes, n, CLIB_CACHE_LINE_BYTES);
   memset (n, 0, sizeof (*n));
+  n->sessions = ~0;
   n->node_id = *node_id;
 
   switch (node_id->type)
@@ -407,7 +408,8 @@ upf_node_assoc_t *sx_new_association(pfcp_node_id_t *node_id)
       break;
 
     case NID_FQDN:
-      hash_set_mem (gtm->node_index_by_fqdn, node_id->fqdn, n - gtm->nodes);
+      n->node_id.fqdn = vec_dup(node_id->fqdn);
+      hash_set_mem (gtm->node_index_by_fqdn, n->node_id.fqdn, n - gtm->nodes);
       break;
     }
 
@@ -417,6 +419,8 @@ upf_node_assoc_t *sx_new_association(pfcp_node_id_t *node_id)
 void sx_release_association(upf_node_assoc_t *n)
 {
   upf_main_t *gtm = &upf_main;
+  u32 node_id = n - gtm->nodes;
+  u32 idx = n->sessions;
 
   switch (n->node_id.type)
     {
@@ -431,18 +435,101 @@ void sx_release_association(upf_node_assoc_t *n)
       break;
     }
 
+  clib_warning("sx_release_association idx: %u");
+
+  while (idx != ~0)
+    {
+      upf_session_t * sx = pool_elt_at_index (gtm->sessions, idx);
+
+      ASSERT(sx->assoc.node == node_id);
+
+      idx = sx->assoc.next;
+
+      if (sx_disable_session(sx) != 0)
+	  clib_error("failed to remove UPF session 0x%016" PRIx64, sx->cp_seid);
+      sx_free_session(sx);
+    }
+
+  ASSERT(n->sessions == ~0);
+
   pool_put(gtm->nodes, n);
 }
 
-upf_session_t *sx_create_session(int sx_fib_index, const ip46_address_t *up_address,
-				    uint64_t cp_seid, const ip46_address_t *cp_address)
+static void node_assoc_attach_session(upf_node_assoc_t *n, upf_session_t *sx)
 {
+  upf_main_t *gtm = &upf_main;
+  u32 sx_idx = sx - gtm->sessions;
+
+  sx->assoc.node = n - gtm->nodes;
+  sx->assoc.prev = ~0;
+
+  if (n->sessions != ~0)
+    {
+      upf_session_t *prev = pool_elt_at_index (gtm->sessions, n->sessions);
+
+      ASSERT(prev->assoc.prev == ~0);
+      ASSERT(prev->assoc.node == sx->assoc.node);
+      ASSERT(!pool_is_free_index (gtm->sessions, n->sessions));
+
+      prev->assoc.prev = sx_idx;
+    }
+
+  sx->assoc.next = n->sessions;
+  n->sessions = sx_idx;
+}
+
+static void node_assoc_detach_session(upf_session_t *sx)
+{
+  upf_main_t *gtm = &upf_main;
+  upf_node_assoc_t *n;
+
+  ASSERT(sx->assoc.node != ~0);
+  ASSERT(!pool_is_free_index (gtm->nodes, sx->assoc.node));
+
+  if (sx->assoc.prev != ~0)
+    {
+      upf_session_t *prev = pool_elt_at_index (gtm->sessions, sx->assoc.prev);
+
+      ASSERT(prev->assoc.node == sx->assoc.node);
+
+      prev->assoc.next = sx->assoc.next;
+    }
+  else
+    {
+      n = pool_elt_at_index (gtm->nodes, sx->assoc.node);
+      ASSERT(n->sessions != ~0);
+
+      n->sessions = sx->assoc.next;
+    }
+
+  if (sx->assoc.next != ~0)
+    {
+      upf_session_t *next = pool_elt_at_index (gtm->sessions, sx->assoc.next);
+
+      ASSERT(next->assoc.node == sx->assoc.node);
+
+      next->assoc.prev = sx->assoc.prev;
+    }
+
+  sx->assoc.node = sx->assoc.prev = sx->assoc.next = ~0;
+}
+
+upf_session_t *sx_create_session(upf_node_assoc_t *assoc, int sx_fib_index,
+				 const ip46_address_t *up_address, uint64_t cp_seid,
+				 const ip46_address_t *cp_address)
+{
+  sx_server_main_t *sxsm = &sx_server_main;
   vnet_main_t *vnm = upf_main.vnet_main;
   l2input_main_t *l2im = &l2input_main;
   upf_main_t *gtm = &upf_main;
   u32 hw_if_index = ~0;
   u32 sw_if_index = ~0;
   upf_session_t *sx;
+
+  clib_warning("CP F-SEID: 0x%016" PRIx64 " @ %U\n"
+	       "UP F-SEID: 0x%016" PRIx64 " @ %U\n",
+	       cp_seid, format_ip46_address, cp_address, IP46_TYPE_ANY,
+	       cp_seid, format_ip46_address, up_address, IP46_TYPE_ANY);
 
   pool_get_aligned (gtm->sessions, sx, CLIB_CACHE_LINE_BYTES);
   memset (sx, 0, sizeof (*sx));
@@ -452,7 +539,12 @@ upf_session_t *sx_create_session(int sx_fib_index, const ip46_address_t *up_addr
   sx->cp_seid = cp_seid;
   sx->cp_address = *cp_address;
 
+  sx->unix_time_start = sxsm->now;
+
+  clib_spinlock_init(&sx->lock);
+
   //TODO sx->up_f_seid = sx - gtm->sessions;
+  node_assoc_attach_session(assoc, sx);
   hash_set (gtm->session_by_id, cp_seid, sx - gtm->sessions);
 
   vnet_hw_interface_t *hi;
@@ -752,8 +844,8 @@ static int make_pending_urr(upf_session_t *sx)
       pending->urr = vec_dup(active->urr);
       vec_foreach (urr, pending->urr)
 	{
-	  memset(&urr->measurement.volume, 0, sizeof(urr->measurement.volume));
-	  vlib_validate_combined_counter(&urr->measurement.volume, URR_COUNTER_NUM);
+	  urr->update_flags = 0;
+	  memset(&urr->volume.measure, 0, sizeof(urr->volume.measure));
 	}
     }
 
@@ -765,7 +857,6 @@ static void sx_free_rules(upf_session_t *sx, int rule)
   struct rules *rules = sx_get_rules(sx, rule);
   upf_pdr_t *pdr;
   upf_far_t *far;
-  upf_urr_t *urr;
 
   vec_foreach (pdr, rules->pdr)
   {
@@ -782,8 +873,6 @@ static void sx_free_rules(upf_session_t *sx, int rule)
       vec_free(far->forward.rewrite);
     }
   vec_free(rules->far);
-  vec_foreach (urr, rules->urr)
-    vlib_free_combined_counter(&urr->measurement.volume);
   vec_free(rules->urr);
   for (size_t i = 0; i < ARRAY_LEN(rules->sdf); i++)
     sx_acl_free(&rules->sdf[i]);
@@ -812,6 +901,8 @@ static void rcu_free_sx_session_info(struct rcu_head *head)
   for (size_t i = 0; i < ARRAY_LEN(sx->rules); i++)
     sx_free_rules(sx, i);
 
+  clib_spinlock_free(&sx->lock);
+
   vec_add1 (gtm->free_session_hw_if_indices, sx->hw_if_index);
 
   pool_put_index (gtm->sessions, si->idx);
@@ -826,6 +917,7 @@ int sx_disable_session(upf_session_t *sx)
   ip46_address_fib_t *vrf_ip;
   gtpu4_tunnel_key_t *v4_teid;
   gtpu6_tunnel_key_t *v6_teid;
+  upf_urr_t *urr;
 
   hash_unset (gtm->session_by_id, sx->cp_seid);
   vec_foreach (v4_teid, active->v4_teid)
@@ -834,6 +926,8 @@ int sx_disable_session(upf_session_t *sx)
     sx_add_del_v6_teid(v6_teid, sx, 0);
   vec_foreach (vrf_ip, active->vrf_ip)
     sx_add_del_vrf_ip(vrf_ip, sx, 0);
+
+  node_assoc_detach_session(sx);
 
   //TODO: free DL fifo...
 
@@ -845,6 +939,15 @@ int sx_disable_session(upf_session_t *sx)
   /* make sure session is removed from l2 bd or xconnect */
   set_int_l2_mode (gtm->vlib_main, vnm, MODE_L3, sx->sw_if_index, 0, 0, 0, 0);
   gtm->session_index_by_sw_if_index[sx->sw_if_index] = ~0;
+
+  /* stop all timers */
+  vec_foreach (urr, active->urr)
+    {
+      upf_pfcp_session_stop_urr_time(&urr->measurement_period);
+      upf_pfcp_session_stop_urr_time(&urr->monitoring_time);
+      upf_pfcp_session_stop_urr_time(&urr->time_threshold);
+      upf_pfcp_session_stop_urr_time(&urr->time_quota);
+    }
 
   return 0;
 }
@@ -1206,17 +1309,17 @@ static int add_ip4_sdf(struct rte_acl_ctx *ctx, const upf_pdr_t *pdr,
   switch (pdr->pdi.src_intf)
     {
     case SRC_INTF_ACCESS:
-      ip4_assign_src_address(&r, SRC_FIELD_IPV4, pdr);
-      ip4_assign_dst_address(&r, DST_FIELD_IPV4, pdr);
-      ip4_assign_src_port(&r, SRCP_FIELD_IPV4, pdr);
-      ip4_assign_dst_port(&r, DSTP_FIELD_IPV4, pdr);
-      break;
-
-    default:
       ip4_assign_src_address(&r, DST_FIELD_IPV4, pdr);
       ip4_assign_dst_address(&r, SRC_FIELD_IPV4, pdr);
       ip4_assign_src_port(&r, DSTP_FIELD_IPV4, pdr);
       ip4_assign_dst_port(&r, SRCP_FIELD_IPV4, pdr);
+      break;
+
+    default:
+      ip4_assign_src_address(&r, SRC_FIELD_IPV4, pdr);
+      ip4_assign_dst_address(&r, DST_FIELD_IPV4, pdr);
+      ip4_assign_src_port(&r, SRCP_FIELD_IPV4, pdr);
+      ip4_assign_dst_port(&r, DSTP_FIELD_IPV4, pdr);
       break;
     }
 
@@ -1330,17 +1433,17 @@ static int add_ip6_sdf(struct rte_acl_ctx *ctx, const upf_pdr_t *pdr,
   switch (pdr->pdi.src_intf)
     {
     case SRC_INTF_ACCESS:
-      ip6_assign_src_address(&r, SRC1_FIELD_IPV6, pdr);
-      ip6_assign_dst_address(&r, DST1_FIELD_IPV6, pdr);
-      ip6_assign_src_port(&r, SRCP_FIELD_IPV6, pdr);
-      ip6_assign_dst_port(&r, DSTP_FIELD_IPV6, pdr);
-      break;
-
-    default:
       ip6_assign_src_address(&r, DST1_FIELD_IPV6, pdr);
       ip6_assign_dst_address(&r, SRC1_FIELD_IPV6, pdr);
       ip6_assign_src_port(&r, DSTP_FIELD_IPV6, pdr);
       ip6_assign_dst_port(&r, SRCP_FIELD_IPV6, pdr);
+      break;
+
+    default:
+      ip6_assign_src_address(&r, SRC1_FIELD_IPV6, pdr);
+      ip6_assign_dst_address(&r, DST1_FIELD_IPV6, pdr);
+      ip6_assign_src_port(&r, SRCP_FIELD_IPV6, pdr);
+      ip6_assign_dst_port(&r, DSTP_FIELD_IPV6, pdr);
       break;
     }
 
@@ -1693,6 +1796,11 @@ int sx_update_apply(upf_session_t *sx)
   struct rules *pending = sx_get_rules(sx, SX_PENDING);
   struct rules *active = sx_get_rules(sx, SX_ACTIVE);
   int pending_pdr, pending_far, pending_urr;
+  sx_server_main_t *sxsm = &sx_server_main;
+  upf_main_t *gtm = &upf_main;
+  u32 si = sx - gtm->sessions;
+  f64 now = sxsm->now;
+  upf_urr_t *urr;
 
   if (!pending->pdr && !pending->far && !pending->urr)
     return 0;
@@ -1753,14 +1861,7 @@ int sx_update_apply(upf_session_t *sx)
   else
     pending->far = active->far;
 
-  if (pending_urr)
-    {
-      upf_urr_t *urr;
-
-      vec_foreach (urr, pending->urr)
-	vlib_validate_combined_counter(&urr->measurement.volume, URR_COUNTER_NUM);
-    }
-  else
+  if (!pending_urr)
     pending->urr = active->urr;
 
   if (pending_pdr)
@@ -1802,9 +1903,97 @@ int sx_update_apply(upf_session_t *sx)
     }
 
   pending = sx_get_rules(sx, SX_PENDING);
+  active = sx_get_rules(sx, SX_ACTIVE);
+
+
+  vec_foreach (urr, active->urr)
+    {
+      if (urr->update_flags & SX_URR_UPDATE_MEASUREMENT_PERIOD)
+	{
+	  upf_pfcp_session_start_stop_urr_time
+	    (si, urr->id, SX_URR_PERIODIC_TIMER, now, &urr->measurement_period,
+	     !!(urr->triggers & REPORTING_TRIGGER_PERIODIC_REPORTING));
+	}
+
+      if (urr->update_flags & SX_URR_UPDATE_MONITORING_TIME)
+	{
+	  upf_pfcp_session_start_stop_urr_time_abs
+	    (si, urr->id, SX_URR_MONITORING_TIMER, now, &urr->monitoring_time);
+	}
+
+      if ((urr->methods & SX_URR_TIME))
+	{
+	  if (urr->update_flags & SX_URR_UPDATE_TIME_THRESHOLD)
+	    {
+	      upf_pfcp_session_start_stop_urr_time
+		(si, urr->id, SX_URR_THRESHOLD_TIMER, now, &urr->time_threshold,
+		 !!(urr->triggers & REPORTING_TRIGGER_TIME_THRESHOLD));
+	    }
+	  if (urr->update_flags & SX_URR_UPDATE_TIME_QUOTA)
+	    {
+	      urr->time_quota.base =
+		(urr->time_threshold.base != 0) ? urr->time_threshold.base : now;
+	      upf_pfcp_session_start_stop_urr_time
+		(si, urr->id, SX_URR_QUOTA_TIMER, now, &urr->time_quota,
+		 !!(urr->triggers & REPORTING_TRIGGER_TIME_QUOTA));
+	    }
+	}
+    }
+
   if (!pending_pdr) pending->pdr = NULL;
   if (!pending_far) pending->far = NULL;
-  if (!pending_urr) pending->urr = NULL;
+  if (pending_urr)
+    {
+      clib_spinlock_lock (&sx->lock);
+
+      /* copy rest traffic from old active (now pending) to current
+       * new URR was initialized with zero, simply add the old values */
+      vec_foreach (urr, pending->urr)
+	{
+	  upf_urr_t * new_urr = sx_get_urr_by_id(active, urr->id);
+
+	  if (!new_urr)
+	    {
+	      /* stop all timers */
+	      upf_pfcp_session_stop_urr_time(&urr->measurement_period);
+	      upf_pfcp_session_stop_urr_time(&urr->monitoring_time);
+	      upf_pfcp_session_stop_urr_time(&urr->time_threshold);
+	      upf_pfcp_session_stop_urr_time(&urr->time_quota);
+
+	      continue;
+	    }
+
+	  if ((new_urr->methods & SX_URR_VOLUME))
+	    {
+	      urr_volume_t *old_volume = &urr->volume;
+	      urr_volume_t *new_volume = &new_urr->volume;
+
+#define combine_volume_type(Dst, Src, T, D)		\
+	      (Dst)->measure.T.D += (Src)->measure.T.D
+#define combine_volume(Dst, Src, T)				\
+	      do {						\
+		combine_volume_type((Dst), (Src), T, ul);	\
+		combine_volume_type((Dst), (Src), T, dl);	\
+		combine_volume_type((Dst), (Src), T, total);	\
+	      } while (0)
+
+	      combine_volume(new_volume, old_volume, packets);
+	      combine_volume(new_volume, old_volume, bytes);
+
+	      if (new_urr->update_flags & SX_URR_UPDATE_VOLUME_QUOTA)
+		new_volume->measure.consumed = new_volume->measure.bytes;
+	      else
+		combine_volume(new_volume, old_volume, consumed);
+
+#undef combine_volume
+#undef combine_volume_type
+	    }
+	}
+
+      clib_spinlock_unlock (&sx->lock);
+    }
+  else
+    pending->urr = NULL;
 
   return 0;
 }
@@ -1832,46 +2021,77 @@ upf_session_t *sx_lookup(uint64_t sess_id)
   return pool_elt_at_index (gtm->sessions, p[0]);
 }
 
-void
-vlib_free_combined_counter (vlib_combined_counter_main_t * cm)
+static int urr_increment_and_check_counter(u64 * packets, u64 * bytes, u64 * consumed,
+					   u64 threshold, u64 quota, u64 n_bytes)
 {
-  vlib_thread_main_t *tm = vlib_get_thread_main ();
-  int i;
+  int r = URR_OK;
 
-  for (i = 0; i < tm->n_vlib_mains; i++)
-    vec_free (cm->counters[i]);
-  vec_free (cm->counters);
+  if (quota != 0 &&
+      unlikely(*consumed < quota && *consumed + n_bytes >= quota))
+    r |= URR_QUOTA_EXHAUSTED;
+  *consumed += n_bytes;
+
+  if (threshold != 0 &&
+      unlikely(*bytes < threshold && *bytes + n_bytes >= threshold))
+    r |= URR_THRESHOLD_REACHED;
+  *bytes += n_bytes;
+
+  *packets += 1;
+
+  return r;
 }
 
-void process_urrs(vlib_main_t *vm, struct rules *r,
-		  upf_pdr_t *pdr, vlib_buffer_t * b,
-		  u8 is_dl, u8 is_ul)
+u32 process_urrs(vlib_main_t *vm, upf_session_t *sess,
+		 struct rules *r,
+		 upf_pdr_t *pdr, vlib_buffer_t * b,
+		 u8 is_dl, u8 is_ul, u32 next)
 {
-  u32 thread_index = vlib_get_thread_index ();
   u16 *urr_id;
+
+  clib_warning("DL: %d, UL: %d\n", is_dl, is_ul);
 
   vec_foreach (urr_id, pdr->urr_ids)
     {
       upf_urr_t * urr = sx_get_urr_by_id(r, *urr_id);
+      int r = URR_OK;
 
       if (!urr)
 	continue;
 
-      if (urr->methods & SX_URR_VOLUME)
+      clib_spinlock_lock (&sess->lock);
+
+      if ((urr->methods & SX_URR_VOLUME) &&
+	  !(urr->status & URR_OVER_QUOTA))
 	{
-	  if (is_dl)
-	    vlib_increment_combined_counter(&urr->measurement.volume, thread_index,
-					    URR_COUNTER_DL, 1,
-					    vlib_buffer_length_in_chain (vm, b));
+#define urr_incr_and_check(V, D, L)					\
+	  urr_increment_and_check_counter(&V.measure.packets.D,		\
+					  &V.measure.bytes.D,		\
+					  &V.measure.consumed.D,	\
+					  V.threshold.D,		\
+					  V.quota.D,			\
+					  (L))
+
 	  if (is_ul)
-	    vlib_increment_combined_counter(&urr->measurement.volume, thread_index,
-					    URR_COUNTER_UL, 1,
-					    vlib_buffer_length_in_chain (vm, b));
-	  vlib_increment_combined_counter(&urr->measurement.volume, thread_index,
-					  URR_COUNTER_TOTAL, 1,
-					  vlib_buffer_length_in_chain (vm, b));
+	    r |= urr_incr_and_check(urr->volume, ul, vlib_buffer_length_in_chain (vm, b));
+	  if (is_dl)
+	    r |= urr_incr_and_check(urr->volume, dl, vlib_buffer_length_in_chain (vm, b));
+
+	  r |= urr_incr_and_check(urr->volume, total, vlib_buffer_length_in_chain (vm, b));
+
+	  if (unlikely(r & URR_QUOTA_EXHAUSTED))
+	    urr->status |= URR_OVER_QUOTA;
 	}
+
+      clib_spinlock_unlock (&sess->lock);
+
+      if (unlikely(urr->status & URR_OVER_QUOTA))
+	next = UPF_CLASSIFY_NEXT_DROP;
+
+      if (unlikely(r != URR_OK))
+	upf_pfcp_server_session_usage_report(sess);
     }
+
+  return next;
 }
 
 static const char *apply_action_flags[] = {
@@ -1890,12 +2110,83 @@ static const char *urr_method_flags[] = {
   NULL
 };
 
+static const char *urr_trigger_flags[] = {
+  "PERIODIC REPORTING",
+  "VOLUME THRESHOLD",
+  "TIME THRESHOLD",
+  "QUOTA HOLDING TIME",
+  "START OF TRAFFIC",
+  "STOP OF TRAFFIC",
+  "DROPPED DL TRAFFIC THRESHOLD",
+  "LINKED USAGE REPORTING",
+  "VOLUME QUOTA",
+  "TIME QUOTA",
+  "ENVELOPE CLOSURE",
+  NULL
+};
+
+static const char *urr_status_flags[] = {
+  "OVER QUOTA",
+  "AFTER MONITORING TIME",
+  NULL
+};
+
 static const char * source_intf_name[] = {
   "Access",
   "Core",
   "SGi-LAN",
   "CP-function"
 };
+
+static u8 *
+format_urr_counter(u8 * s, va_list * args)
+{
+  void *m = va_arg (*args, void *);
+  void *t = va_arg (*args, void *);
+  off_t offs = va_arg (*args, off_t);
+
+  return format(s, "Measured: %20"PRIu64", Theshold: %20"PRIu64", Pkts: %10"PRIu64,
+		*(u64 *)(m + offsetof(urr_measure_t, bytes) + offs),
+		*(u64 *)(t + offs),
+		*(u64 *)(m + offsetof(urr_measure_t, packets) + offs));
+}
+
+static u8 *
+format_urr_quota(u8 * s, va_list * args)
+{
+  void *m = va_arg (*args, void *);
+  void *q = va_arg (*args, void *);
+  off_t offs = va_arg (*args, off_t);
+
+  return format(s, "Consumed: %20"PRIu64", Quota:    %20"PRIu64,
+		*(u64 *)(m + offsetof(urr_measure_t, consumed) + offs),
+		*(u64 *)(q + offs));
+}
+
+static u8 *
+format_urr_time(u8 * s, va_list * args)
+{
+  urr_time_t *t = va_arg (*args, urr_time_t *);
+  f64 now = unix_time_now ();
+
+  return format(s, "%20"PRIu64" secs @ %U, in %9.3f secs, handle 0x%08x",
+		t->period,
+		/* VPP does not support ISO dates... */
+		format_time_float, 0, t->base + (f64)t->period,
+		((f64)t->period) - (now - t->base), t->handle);
+}
+
+static u8 *
+format_urr_time_abs(u8 * s, va_list * args)
+{
+  urr_time_t *t = va_arg (*args, urr_time_t *);
+  f64 now = unix_time_now ();
+
+  return format(s, "%U, in %9.3f secs, handle 0x%08x",
+		/* VPP does not support ISO dates... */
+		format_time_float, 0, t->base,
+		t->base - now, t->handle);
+}
 
 u8 *
 format_sx_session(u8 * s, va_list * args)
@@ -1908,13 +2199,18 @@ format_sx_session(u8 * s, va_list * args)
   upf_far_t *far;
   upf_urr_t *urr;
 
-  s = format(s, "CP F-SEID: 0x%016" PRIx64 " (%" PRIu64 ") @ %p\n"
-	     "Active: %u\nPending: %u\n",
-	     sx->cp_seid, sx->cp_seid, sx,
-	     sx->active ^ SX_ACTIVE, sx->active ^ SX_PENDING);
+  s = format(s,
+	     "CP F-SEID: 0x%016" PRIx64 " (%" PRIu64 ") @ %U\n"
+	     "UP F-SEID: 0x%016" PRIx64 " (%" PRIu64 ") @ %U\n",
+	     sx->cp_seid, sx->cp_seid, format_ip46_address, &sx->cp_address, IP46_TYPE_ANY,
+	     sx->cp_seid, sx->cp_seid, format_ip46_address, &sx->up_address, IP46_TYPE_ANY,
+	     sx);
 
-  s = format(s, "PDR: %p\nFAR: %p\n",
-	     rules->pdr, rules->far);
+  s = format(s, "  Pointer: %p\n  PDR: %p\n  FAR: %p\n",
+	     sx, rules->pdr, rules->far);
+
+  s = format(s, "  Sx Association: %u (prev:%u,next:%u)\n",
+	     sx->assoc.node, sx->assoc.prev, sx->assoc.next);
 
   vec_foreach (pdr, rules->pdr) {
     upf_nwi_t * nwi = NULL;
@@ -2001,10 +2297,120 @@ format_sx_session(u8 * s, va_list * args)
   }
 
   vec_foreach (urr, rules->urr)
-    s = format(s, "URR: %u\n"
-	       "  Measurement Method: %04x == %U\n",
-	       urr->id, urr->methods,
-	       format_flags, urr->methods, urr_method_flags);
+    {
+      s = format(s, "URR: %u\n"
+		 "  Measurement Method: %04x == %U\n"
+		 "  Reporting Triggers: %04x == %U\n"
+		 "  Status: %d == %U\n",
+		 urr->id,
+		 urr->methods, format_flags, (u64)urr->methods, urr_method_flags,
+		 urr->triggers, format_flags, (u64)urr->triggers, urr_trigger_flags,
+		 urr->status, format_flags, (u64)urr->status, urr_status_flags);
+      s = format(s, "  Start Time: %U\n", format_time_float, 0, urr->start_time);
+      if (urr->methods & SX_URR_VOLUME)
+	{
+	  urr_volume_t *v = &urr->volume;
+
+	  s = format(s, "  Volume\n"
+		     "    Up:    %U\n           %U\n"
+		     "    Down:  %U\n           %U\n"
+		     "    Total: %U\n           %U\n",
+		     format_urr_counter, &v->measure, &v->threshold, offsetof(urr_counter_t, ul),
+		     format_urr_quota,   &v->measure, &v->quota, offsetof(urr_counter_t, ul),
+		     format_urr_counter, &v->measure, &v->threshold, offsetof(urr_counter_t, dl),
+		     format_urr_quota,   &v->measure, &v->quota, offsetof(urr_counter_t, dl),
+		     format_urr_counter, &v->measure, &v->threshold, offsetof(urr_counter_t, total),
+		     format_urr_quota,   &v->measure, &v->quota, offsetof(urr_counter_t, total));
+	}
+      if (urr->measurement_period.base != 0)
+	{
+	  s = format(s, "  Measurement Period: %U\n",
+		     format_urr_time, &urr->measurement_period);
+	}
+
+      if (urr->methods & SX_URR_TIME)
+	{
+	  s = format(s, "  Time\n    Quota:     %U\n    Threshold: %U\n",
+		     format_urr_time, &urr->time_quota,
+		     format_urr_time, &urr->time_threshold);
+	}
+      if (urr->monitoring_time.base != 0)
+	{
+	  s = format(s, "  Monitoring Time: %U\n",
+		     format_urr_time_abs, &urr->monitoring_time);
+
+	  if (urr->status & URR_AFTER_MONITORING_TIME)
+	    {
+	      s = format(s, "  Usage Before Monitoring Time\n");
+	      if (urr->methods & SX_URR_VOLUME)
+		{
+		  urr_measure_t *v = &urr->usage_before_monitoring_time.volume;
+
+		  s = format(s, "    Volume\n"
+			     "      Up:    %20"PRIu64", Pkts: %10"PRIu64"\n"
+			     "      Down:  %20"PRIu64", Pkts: %10"PRIu64"\n"
+			     "      Total: %20"PRIu64", Pkts: %10"PRIu64"\n",
+			     v->bytes.ul, v->packets.ul,
+			     v->bytes.dl, v->packets.dl,
+			     v->bytes.total, v->packets.total);
+		}
+	      if (urr->methods & SX_URR_TIME)
+		{
+		  s = format(s, "    Start Time %U, End Time %U, %9.3f secs\n",
+			     format_time_float, 0, urr->usage_before_monitoring_time.start_time,
+			     format_time_float, 0, urr->start_time,
+			     urr->start_time - urr->usage_before_monitoring_time.start_time);
+		}
+	    }
+	}
+    }
+  return s;
+}
+
+static u8 * format_time_stamp(u8 * s, va_list * args)
+{
+  u32 *v = va_arg (*args, u32 *);
+  struct timeval tv = { .tv_sec = *v, .tv_usec = 0};
+
+  return format (s, "%U", format_timeval, 0, &tv);
+}
+
+u8 *
+format_sx_node_association(u8 * s, va_list * args)
+{
+  upf_node_assoc_t *node = va_arg (*args, upf_node_assoc_t *);
+  u8 verbose = va_arg (*args, int);
+  upf_main_t *gtm = &upf_main;
+  u32 idx = node->sessions;
+  u32 i = 0;
+
+  s = format(s,
+	     "Node: %U\n"
+	     "  Recovery Time Stamp: %U\n"
+	     "  Sessions: ",
+	     format_node_id, &node->node_id,
+	     format_time_stamp, &node->recovery_time_stamp);
+
+  while (idx != ~0)
+    {
+      upf_session_t * sx = pool_elt_at_index (gtm->sessions, idx);
+
+      if (verbose)
+	{
+	  if (i > 0 && (i % 8) == 0)
+	    s = format(s, "\n            ");
+
+	  s = format(s, " 0x%016" PRIx64, sx->cp_seid);
+	}
+
+      i++;
+      idx = sx->assoc.next;
+    }
+
+  if (verbose)
+    s = format(s, "\n  %u Session(s)\n", i);
+  else
+    s = format(s, "%u\n", i);
 
   return s;
 }
@@ -2029,3 +2435,11 @@ void sx_session_dump_tbls()
 		       *(uint32_t *)next_key, *(uint32_t *)next_key, next_data);
 #endif
 }
+
+/*
+ * fd.io coding-style-patch-verification: ON
+ *
+ * Local Variables:
+ * eval: (c-set-style "gnu")
+ * End:
+ */

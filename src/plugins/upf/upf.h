@@ -18,6 +18,9 @@
 #ifndef __included_upf_h__
 #define __included_upf_h__
 
+#undef CLIB_DEBUG
+#define CLIB_DEBUG 0
+
 #include <vnet/vnet.h>
 #include <vnet/ip/ip.h>
 #include <vnet/ethernet/ethernet.h>
@@ -302,39 +305,81 @@ typedef struct {
 
 /* Counter */
 
-enum {
-  URR_COUNTER_UL = 0,
-  URR_COUNTER_DL,
-  URR_COUNTER_TOTAL,
-  URR_COUNTER_NUM,
-};
+#define URR_OK                  0
+#define URR_QUOTA_EXHAUSTED     BIT(0)
+#define URR_THRESHOLD_REACHED   BIT(1)
 
-// TODO: replace with vpp counter
+/* TODO: measure if more optimize cache line aware layout
+ *       of the counters and quotas has any performance impcat */
 typedef struct {
-    u64 bytes;
-    u64 pkts;
-} upf_cnt_t;
+  u64 ul;
+  u64 dl;
+  u64 total;
+} urr_counter_t;
+
+typedef struct {
+  urr_counter_t packets;
+  urr_counter_t bytes;
+  urr_counter_t consumed;
+} urr_measure_t;
+
+typedef struct {
+  urr_measure_t measure;
+  urr_counter_t threshold;
+  urr_counter_t quota;
+} urr_volume_t;
+
+typedef struct {
+  f64 base;
+  u32 period;         /* relative duration in seconds */
+  u32 handle;
+} urr_time_t;
+
+#define SX_URR_TW_ID(s, u, i)  (((i) << 30) | ((u) << 22) | (s))
+#define SX_URR_TW_SESSION(i)   ((i) & 0x3fffff)
+#define SX_URR_TW_URR(i)       (((i) >> 22) & 0xff)
+#define SX_URR_TW_TIMER(i)     ((i) >> 30)
 
 /* Usage Reporting Rules */
 typedef struct {
-    u16 id;
-    u16 methods;
+  u16 id;
+  u16 methods;
 #define SX_URR_TIME   0x0001
 #define SX_URR_VOLUME 0x0002
 #define SX_URR_EVENT  0x0004
 
-    u16 triggers;
-#define SX_URR_PERIODIC  0x0001
-#define SX_URR_THRESHOLD 0x0002
-#define SX_URR_ENVELOPE  0x0004
+  u16 triggers;
 
-    struct {
-      u64 volume[URR_COUNTER_NUM];
-    } threshold;
+  u8 status;
+#define URR_OVER_QUOTA                  BIT(0)
+#define URR_AFTER_MONITORING_TIME       BIT(1)
 
-    struct {
-      vlib_combined_counter_main_t volume;
-    } measurement;
+  u8 update_flags;
+#define SX_URR_UPDATE_VOLUME_QUOTA		BIT(0)
+#define SX_URR_UPDATE_TIME_QUOTA		BIT(1)
+#define SX_URR_UPDATE_TIME_THRESHOLD		BIT(2)
+#define SX_URR_UPDATE_MONITORING_TIME		BIT(3)
+#define SX_URR_UPDATE_MEASUREMENT_PERIOD	BIT(4)
+
+  u32 seq_no;
+  f64 start_time;
+
+  urr_volume_t volume;
+
+  urr_time_t measurement_period;	/* relative duration in seconds */
+  urr_time_t time_threshold;		/* relative duration in seconds */
+  urr_time_t time_quota;		/* relative duration in seconds */
+  urr_time_t quota_holding_time;	/* relative duration in seconds */
+  urr_time_t monitoring_time;		/* absolute UTC ts since 1900-01-01 00:00:00 */
+#define SX_URR_THRESHOLD_TIMER		1
+#define SX_URR_QUOTA_TIMER		2
+#define SX_URR_MONITORING_TIMER		3
+#define SX_URR_PERIODIC_TIMER		4
+
+  struct {
+    f64 start_time;
+    urr_measure_t volume;
+  } usage_before_monitoring_time;
 } upf_urr_t;
 
 typedef struct {
@@ -348,9 +393,16 @@ typedef struct {
   u64 cp_seid;
   ip46_address_t cp_address;
 
+  struct {
+    u32 node;
+    u32 next;
+    u32 prev;
+  } assoc;
+
   uint32_t flags;
 #define SX_UPDATING    0x8000
 
+  clib_spinlock_t lock;
   volatile int active;
 
   struct rules {
@@ -382,6 +434,8 @@ typedef struct {
   /* vnet intfc index */
   u32 sw_if_index;
   u32 hw_if_index;
+
+  f64 unix_time_start;
 
   /* flow table*/
   flowtable_per_session_t fmt;
@@ -442,6 +496,8 @@ typedef struct {
 typedef struct {
   pfcp_node_id_t node_id;
   pfcp_recovery_time_stamp_t recovery_time_stamp;
+
+  u32 sessions;
 } upf_node_assoc_t;
 
 typedef u8 * regex_t;
@@ -536,6 +592,15 @@ extern vlib_node_registration_t gtpu4_input_node;
 extern vlib_node_registration_t gtpu6_input_node;
 extern vlib_node_registration_t upf4_encap_node;
 extern vlib_node_registration_t upf6_encap_node;
+
+typedef enum {
+  UPF_CLASSIFY_NEXT_DROP,
+  UPF_CLASSIFY_NEXT_GTP_IP4_ENCAP,
+  UPF_CLASSIFY_NEXT_GTP_IP6_ENCAP,
+  UPF_CLASSIFY_NEXT_IP_INPUT,
+  UPF_CLASSIFY_NEXT_IP_LOCAL,
+  UPF_CLASSIFY_N_NEXT,
+} upf_classify_next_t;
 
 int upf_enable_disable (upf_main_t * sm, u32 sw_if_index,
 			  int enable_disable);

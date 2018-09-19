@@ -18,10 +18,18 @@
 #define _UPF_SX_SERVER_H
 
 #include <time.h>
+#include "upf.h"
 #include "pfcp.h"
+#include <vppinfra/tw_timer_1t_3w_1024sl_ov.h>
 
 typedef struct
 {
+  struct {
+    u32 prev;
+    u32 next;
+    f64 expire;
+  } q;
+
   u32 fib_index;
 
   struct {
@@ -34,32 +42,31 @@ typedef struct
     u16 port;
   } lcl;
 
+  u32 seq_no;
+
   union {
     u8 * data;
     pfcp_header_t * hdr;
   };
 } sx_msg_t;
 
-always_inline void sx_msg_free (sx_msg_t * m)
-{
-  if (m)
-    vec_free(m->data);
-  clib_mem_free(m);
-}
-
 typedef struct
 {
-  u64 node_index;
-
   /* Sx Node Id is either IPv4, IPv6 or FQDN */
   u8 * node_id;
 } sx_node_t;
 
 typedef struct
 {
-  u32 node_index;               /**< process node index for evnt scheduling */
+  u32 seq_no;
   time_t start_time;
   ip46_address_t address;
+  f64 now;
+
+  TWT(tw_timer_wheel) urr_timer;
+  sx_msg_t * msg_pool;
+  u32 request_q_head;
+  u32 response_q_head;
 
   vlib_main_t *vlib_main;
 } sx_server_main_t;
@@ -71,11 +78,29 @@ extern vlib_node_registration_t sx6_input_node;
 
 #define UDP_DST_PORT_SX 8805
 
-void upf_pfcp_send_data (sx_msg_t * msg);
-void upf_pfcp_server_notify (sx_msg_t * msg);
+void upf_pfcp_session_stop_urr_time(urr_time_t *t);
+void upf_pfcp_session_start_stop_urr_time(u32 si, u8 urr_id, u8 type, f64 now,
+					  urr_time_t *t, u8 start_it);
+void
+upf_pfcp_session_start_stop_urr_time_abs(u32 si, u8 urr_id, u8 type, f64 now, urr_time_t *t);
+
+int upf_pfcp_send_request(upf_session_t * sx, u8 type, struct pfcp_group * grp);
+
+sx_msg_t * upf_pfcp_make_response(sx_msg_t * req, size_t len);
+int upf_pfcp_send_response(sx_msg_t * req, u64 cp_seid, u8 type, struct pfcp_group * grp);
+
+void upf_pfcp_server_session_usage_report(upf_session_t *sx);
 
 void upf_pfcp_handle_input (vlib_main_t * vm, vlib_buffer_t *b, int is_ip4);
 
 clib_error_t * sx_server_main_init (vlib_main_t * vm);
 
 #endif /* _UPF_SX_SERVER_H */
+
+/*
+ * fd.io coding-style-patch-verification: ON
+ *
+ * Local Variables:
+ * eval: (c-set-style "gnu")
+ * End:
+ */
