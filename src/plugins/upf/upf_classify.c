@@ -62,15 +62,6 @@ typedef enum {
     UPF_CLASSIFY_N_ERROR,
 } upf_classify_error_t;
 
-typedef enum {
-  UPF_CLASSIFY_NEXT_DROP,
-  UPF_CLASSIFY_NEXT_GTP_IP4_ENCAP,
-  UPF_CLASSIFY_NEXT_GTP_IP6_ENCAP,
-  UPF_CLASSIFY_NEXT_IP_INPUT,
-  UPF_CLASSIFY_NEXT_IP_LOCAL,
-  UPF_CLASSIFY_N_NEXT,
-} upf_classify_next_t;
-
 typedef struct {
   u32 session_index;
   u64 cp_seid;
@@ -384,7 +375,9 @@ upf_classify (vlib_main_t * vm, vlib_node_runtime_t * node,
 #define IS_UL(_pdr, _far)			\
 	  ((_pdr)->pdi.src_intf == SRC_INTF_ACCESS || (_far)->forward.dst_intf == DST_INTF_CORE)
 
-	      process_urrs(vm, active, pdr, b, IS_DL(pdr, far), IS_UL(pdr, far));
+	      clib_warning("pdr: %d, far: %d\n", pdr->id, far->id);
+	      next = process_urrs(vm, sess, active, pdr, b,
+				  IS_DL(pdr, far), IS_UL(pdr, far), next);
 
 #undef IS_DL
 #undef IS_UL
@@ -491,3 +484,11 @@ VLIB_REGISTER_NODE (upf_ip6_classify_node) = {
 };
 
 VLIB_NODE_FUNCTION_MULTIARCH (upf_ip6_classify_node, upf_ip6_classify)
+
+/*
+ * fd.io coding-style-patch-verification: ON
+ *
+ * Local Variables:
+ * eval: (c-set-style "gnu")
+ * End:
+ */

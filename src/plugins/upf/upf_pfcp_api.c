@@ -77,58 +77,8 @@ static void init_response_node_id(struct pfcp_response *r)
 
 /*************************************************************************/
 
-static sx_msg_t * make_response(sx_msg_t * req, size_t len)
-{
-  sx_msg_t * resp;
-
-  resp = clib_mem_alloc_no_fail(sizeof(sx_msg_t));
-  memset(resp, 0, sizeof(sx_msg_t));
-
-  resp->fib_index = req->fib_index;
-  resp->lcl = req->lcl;
-  resp->rmt = req->rmt;
-  vec_alloc(resp->data, len);
-
-  return resp;
-}
-
-/*************************************************************************/
-
 int upf_pfcp_handle_msg(sx_msg_t * msg)
 {
-  int len = vec_len(msg->data);
-
-  if (len < 4)
-    return -1;
-
-  gtp_debug ("%U", format_pfcp_msg_hdr, msg->hdr);
-
-  if (msg->hdr->version != 1)
-    {
-      sx_msg_t * resp = NULL;
-
-      gtp_debug ("PFCP: msg version invalid: %d.", msg->hdr->version);
-
-      resp = make_response(msg, sizeof(pfcp_header_t));
-
-      resp->hdr->version = 1;
-      resp->hdr->type = PFCP_VERSION_NOT_SUPPORTED_RESPONSE;
-      resp->hdr->length = clib_host_to_net_u16(offsetof(pfcp_header_t, msg_hdr.ies) - 4);
-      _vec_len(resp->data) = offsetof(pfcp_header_t, msg_hdr.ies);
-
-      upf_pfcp_send_data(resp);
-      return 0;
-  }
-
-  if (len != (clib_net_to_host_u16(msg->hdr->length) + 4) ||
-      (!msg->hdr->s_flag && len < offsetof(pfcp_header_t, msg_hdr.ies)) ||
-      (msg->hdr->s_flag && len < offsetof(pfcp_header_t, session_hdr.ies)))
-    {
-      gtp_debug ("PFCP: msg length invalid, data %d, msg %d.",
-		    len, clib_net_to_host_u16(msg->hdr->length));
-      return -1;
-    }
-
   switch (msg->hdr->type)
     {
     case PFCP_HEARTBEAT_REQUEST:
@@ -370,82 +320,46 @@ format_ipfilter(u8 * s, va_list * args)
 
 /*************************************************************************/
 
-static int send_session_request(upf_session_t * sx, u8 type, struct pfcp_group *grp)
+/* message helpers */
+
+static void
+build_user_plane_ip_resource_information(pfcp_user_plane_ip_resource_information_t **upip)
 {
-  sx_msg_t * msg;
-  int r = 0;
+  upf_main_t * gtm = &upf_main;
+  upf_nwi_t * nwi;
 
-  msg = clib_mem_alloc_no_fail(sizeof(sx_msg_t));
-  memset(msg, 0, sizeof(sx_msg_t));
+  pool_foreach (nwi, gtm->nwis,
+    ({
+      upf_nwi_ip_res_t * ip_res;
 
-  msg->data = vec_new(u8, 2048);
+      pool_foreach (ip_res, nwi->ip_res,
+	({
+	  pfcp_user_plane_ip_resource_information_t *r;
 
-  msg->hdr->version = 1;
-  msg->hdr->s_flag = 1;
-  msg->hdr->type = type;
+	  vec_alloc(*upip, 1);
+	  r = vec_end(*upip);
 
-  msg->hdr->session_hdr.seid = clib_host_to_net_u64(sx->cp_seid);
-  //TODO: sequence number....
-  _vec_len(msg->data) = offsetof(pfcp_header_t, session_hdr.ies);
+	  r->network_instance = vec_dup(nwi->name);
+	  if (ip_res->mask != 0)
+	    {
+	      r->teid_range_indication = __builtin_popcount(ip_res->mask);
+	      r->teid_range = (ip_res->teid >> 24);
+	    }
 
-  r = pfcp_encode_msg(type, grp, &msg->data);
-  if (r != 0)
-    goto out_free;
+	  if (ip46_address_is_ip4 (&ip_res->ip))
+	    {
+	      r->flags |= USER_PLANE_IP_RESOURCE_INFORMATION_V4;
+	      r->ip4 = ip_res->ip.ip4;
+	    }
+	  else
+	    {
+	      r->flags |= USER_PLANE_IP_RESOURCE_INFORMATION_V6;
+	      r->ip6 = ip_res->ip.ip6;
+	    }
 
-  msg->hdr->length = clib_host_to_net_u16(_vec_len(msg->data) - 4);
-
-  msg->fib_index = sx->fib_index,
-  msg->lcl.address = sx->up_address;
-  msg->rmt.address = sx->cp_address;
-  msg->lcl.port = UDP_DST_PORT_SX;
-  msg->rmt.port = UDP_DST_PORT_SX;
-
-  upf_pfcp_server_notify (msg);
-
- out_free:
-  pfcp_free_msg(type, grp);
-  return 0;
-}
-
-static int send_response(sx_msg_t * req, u64 cp_seid, u8 type, struct pfcp_group *grp)
-{
-  sx_msg_t * resp;
-  int r = 0;
-
-  resp = make_response(req, 2048);
-
-  resp->hdr->version = req->hdr->version;
-  resp->hdr->s_flag = req->hdr->s_flag;
-  resp->hdr->type = type;
-
-  if (req->hdr->s_flag)
-    {
-      resp->hdr->s_flag = 1;
-      resp->hdr->session_hdr.seid = clib_host_to_net_u64(cp_seid);
-
-      memcpy(resp->hdr->session_hdr.sequence, req->hdr->session_hdr.sequence,
-	     sizeof(resp->hdr->session_hdr.sequence));
-      _vec_len(resp->data) = offsetof(pfcp_header_t, session_hdr.ies);
-    }
-  else
-    {
-      memcpy(resp->hdr->msg_hdr.sequence, req->hdr->msg_hdr.sequence,
-	     sizeof(resp->hdr->session_hdr.sequence));
-      _vec_len(resp->data) = offsetof(pfcp_header_t, msg_hdr.ies);
-    }
-
-  r = pfcp_encode_msg(type, grp, &resp->data);
-  if (r != 0)
-    goto out_free;
-
-  /* vector resp might have changed */
-  resp->hdr->length = clib_host_to_net_u16(_vec_len(resp->data) - 4);
-
-  upf_pfcp_send_data(resp);
-
- out_free:
-  pfcp_free_msg(type, grp);
-  return 0;
+	  _vec_len(*upip)++;
+	}));
+    }));
 }
 
 /* message handlers */
@@ -463,7 +377,7 @@ handle_heartbeat_request(sx_msg_t * req, pfcp_heartbeat_request_t *msg)
   gtp_debug ("PFCP: start_time: %p, %d, %x.",
 		&sx, sx->start_time, sx->start_time);
 
-  send_response(req, 0, PFCP_HEARTBEAT_RESPONSE, &resp.grp);
+  upf_pfcp_send_response(req, 0, PFCP_HEARTBEAT_RESPONSE, &resp.grp);
 
   return 0;
 }
@@ -491,9 +405,7 @@ handle_association_setup_request(sx_msg_t * req, pfcp_association_setup_request_
 {
   sx_server_main_t *sx = &sx_server_main;
   pfcp_association_setup_response_t resp;
-  upf_main_t * gtm = &upf_main;
   upf_node_assoc_t *n;
-  upf_nwi_t * nwi;
   int r = 0;
 
   memset(&resp, 0, sizeof(resp));
@@ -525,45 +437,15 @@ handle_association_setup_request(sx_msg_t * req, pfcp_association_setup_request_
   resp.up_function_features |= F_UPFF_EMPU;
   /* currently no optional features are supported */
 
-  pool_foreach (nwi, gtm->nwis,
-    ({
-      upf_nwi_ip_res_t * ip_res;
-
-      pool_foreach (ip_res, nwi->ip_res,
-	({
-	  pfcp_user_plane_ip_resource_information_t *r;
-
-	  vec_alloc(resp.user_plane_ip_resource_information, 1);
-	  r = vec_end(resp.user_plane_ip_resource_information);
-
-	  r->network_instance = vec_dup(nwi->name);
-	  if (ip_res->mask != 0)
-	    {
-	      r->teid_range_indication = __builtin_popcount(ip_res->mask);
-	      r->teid_range = (ip_res->teid >> 24);
-	    }
-
-	  if (ip46_address_is_ip4 (&ip_res->ip))
-	    {
-	      r->flags |= USER_PLANE_IP_RESOURCE_INFORMATION_V4;
-	      r->ip4 = ip_res->ip.ip4;
-	    }
-	  else
-	    {
-	      r->flags |= USER_PLANE_IP_RESOURCE_INFORMATION_V6;
-	      r->ip6 = ip_res->ip.ip6;
-	    }
-
-	  _vec_len(resp.user_plane_ip_resource_information)++;
-	  SET_BIT(resp.grp.fields, ASSOCIATION_SETUP_RESPONSE_USER_PLANE_IP_RESOURCE_INFORMATION);
-	}));
-    }));
+  build_user_plane_ip_resource_information(&resp.user_plane_ip_resource_information);
+  if (vec_len(resp.user_plane_ip_resource_information) != 0)
+    SET_BIT(resp.grp.fields, ASSOCIATION_SETUP_RESPONSE_USER_PLANE_IP_RESOURCE_INFORMATION);
 
  out_send_resp:
   if (r == 0)
     resp.response.cause = PFCP_CAUSE_REQUEST_ACCEPTED;
 
-  send_response(req, 0, PFCP_ASSOCIATION_SETUP_RESPONSE, &resp.grp);
+  upf_pfcp_send_response(req, 0, PFCP_ASSOCIATION_SETUP_RESPONSE, &resp.grp);
   return r;
 }
 
@@ -861,14 +743,8 @@ static int handle_create_pdr(upf_session_t *sess, pfcp_create_pdr_t *create_pdr,
 		{
 			create->pdi.fields |= F_PDI_APPLICATION_ID;
 
-			pfcp_application_id_t *app_id = NULL;
 			pfcp_application_id_t *app_id_vector = NULL;
-	
-			vec_foreach(app_id, pdr->pdi.application_id)
-				{
-					vec_add1(app_id_vector, *app_id);
-				}
-
+			vec_add1(app_id_vector, pdr->pdi.application_id);
 			upf_add_multi_regex(app_id_vector, &create->dpi_db_id, 1);
 			vec_free(app_id_vector);
 		}
@@ -989,14 +865,8 @@ static int handle_update_pdr(upf_session_t *sess, pfcp_update_pdr_t *update_pdr,
 			{
 				update->pdi.fields |= F_PDI_APPLICATION_ID;
 
-				pfcp_application_id_t *app_id = NULL;
 				pfcp_application_id_t *app_id_vector = NULL;
-		
-				vec_foreach(app_id, pdr->pdi.application_id)
-					{
-						vec_add1(app_id_vector, *app_id);
-					}
-
+				vec_add1(app_id_vector, pdr->pdi.application_id);
 				upf_add_multi_regex(app_id_vector, &update->dpi_db_id, 0);
 				vec_free(app_id_vector);
 			}
@@ -1353,7 +1223,7 @@ static int handle_remove_far(upf_session_t *sess, pfcp_remove_far_t *remove_far,
   return r;
 }
 
-static int handle_create_urr(upf_session_t *sess, pfcp_create_urr_t *create_urr,
+static int handle_create_urr(upf_session_t *sess, pfcp_create_urr_t *create_urr, f64 now,
 			     struct pfcp_group *grp,
 			     int failed_rule_id_field,
 			     pfcp_failed_rule_id_t *failed_rule_id)
@@ -1369,23 +1239,59 @@ static int handle_create_urr(upf_session_t *sess, pfcp_create_urr_t *create_urr,
       create = clib_mem_alloc_no_fail(sizeof(*create));
       memset(create, 0, sizeof(*create));
 
+      create->measurement_period.handle =
+	      create->monitoring_time.handle =
+	      create->time_threshold.handle =
+	      create->time_quota.handle = ~0;
+
       create->id = urr->urr_id;
       create->methods = urr->measurement_method;
       create->triggers = OPT(urr, CREATE_URR_REPORTING_TRIGGERS, reporting_triggers, 0);
-      //TODO: measurement_period;
-      if (ISSET_BIT(urr->grp.fields, CREATE_URR_VOLUME_THRESHOLD))
+      create->start_time = now;
+
+      if (ISSET_BIT(urr->grp.fields, CREATE_URR_MEASUREMENT_PERIOD))
 	{
-	  create->threshold.volume[URR_COUNTER_UL] = urr->volume_threshold.ul;
-	  create->threshold.volume[URR_COUNTER_DL] = urr->volume_threshold.dl;
-	  create->threshold.volume[URR_COUNTER_TOTAL] = urr->volume_threshold.total;
+	  create->update_flags |= SX_URR_UPDATE_MEASUREMENT_PERIOD;
+	  create->measurement_period.period = urr->measurement_period;
+	  create->measurement_period.base = now;
 	}
 
-      //TODO: volume_quota;
-      //TODO: time_threshold;
-      //TODO: time_quota;
+      if (ISSET_BIT(urr->grp.fields, CREATE_URR_VOLUME_THRESHOLD))
+	{
+	  create->volume.threshold.ul = urr->volume_threshold.ul;
+	  create->volume.threshold.dl = urr->volume_threshold.dl;
+	  create->volume.threshold.total = urr->volume_threshold.total;
+	}
+
+      if (ISSET_BIT(urr->grp.fields, CREATE_URR_VOLUME_QUOTA))
+	{
+	  create->volume.quota.ul = urr->volume_quota.ul;
+	  create->volume.quota.dl = urr->volume_quota.dl;
+	  create->volume.quota.total = urr->volume_quota.total;
+	}
+
+      if (ISSET_BIT(urr->grp.fields, CREATE_URR_TIME_THRESHOLD))
+	{
+	  create->update_flags |= SX_URR_UPDATE_TIME_THRESHOLD;
+	  create->time_threshold.period = urr->time_threshold;
+	  create->time_threshold.base = now;
+	}
+      if (ISSET_BIT(urr->grp.fields, CREATE_URR_TIME_QUOTA))
+	{
+	  create->update_flags |= SX_URR_UPDATE_TIME_QUOTA;
+	  create->time_quota.period = urr->time_quota;
+	  create->time_quota.base = now;
+	}
+
       //TODO: quota_holding_time;
       //TODO: dropped_dl_traffic_threshold;
-      //TODO: monitoring_time;
+
+      if (ISSET_BIT(urr->grp.fields, CREATE_URR_MONITORING_TIME))
+	{
+	  create->update_flags |= SX_URR_UPDATE_MONITORING_TIME;
+	  create->monitoring_time.base = urr->monitoring_time;
+	}
+
       //TODO: subsequent_volume_threshold;
       //TODO: subsequent_time_threshold;
       //TODO: inactivity_detection_time;
@@ -1412,7 +1318,7 @@ static int handle_create_urr(upf_session_t *sess, pfcp_create_urr_t *create_urr,
   return r;
 }
 
-static int handle_update_urr(upf_session_t *sess, pfcp_update_urr_t *update_urr,
+static int handle_update_urr(upf_session_t *sess, pfcp_update_urr_t *update_urr, f64 now,
 			     struct pfcp_group *grp,
 			     int failed_rule_id_field,
 			     pfcp_failed_rule_id_t *failed_rule_id)
@@ -1436,21 +1342,54 @@ static int handle_update_urr(upf_session_t *sess, pfcp_update_urr_t *update_urr,
 	}
 
       update->methods = urr->measurement_method;
-      update->triggers = OPT(urr, UPDATE_URR_REPORTING_TRIGGERS, reporting_triggers, 0);
-      //TODO: measurement_period;
-      if (ISSET_BIT(urr->grp.fields, UPDATE_URR_VOLUME_THRESHOLD))
+      update->triggers = OPT(urr, UPDATE_URR_REPORTING_TRIGGERS,
+			     reporting_triggers, update->triggers);
+      update->status &= ~URR_OVER_QUOTA;
+
+      if (ISSET_BIT(urr->grp.fields, UPDATE_URR_MEASUREMENT_PERIOD))
 	{
-	  update->threshold.volume[URR_COUNTER_UL] = urr->volume_threshold.ul;
-	  update->threshold.volume[URR_COUNTER_DL] = urr->volume_threshold.dl;
-	  update->threshold.volume[URR_COUNTER_TOTAL] = urr->volume_threshold.total;
+	  update->update_flags |= SX_URR_UPDATE_MEASUREMENT_PERIOD;
+	  update->measurement_period.period = urr->measurement_period;
+	  update->measurement_period.base = now;
 	}
 
-      //TODO: volume_quota;
-      //TODO: time_threshold;
-      //TODO: time_quota;
+      if (ISSET_BIT(urr->grp.fields, UPDATE_URR_VOLUME_THRESHOLD))
+	{
+	  update->volume.threshold.ul = urr->volume_threshold.ul;
+	  update->volume.threshold.dl = urr->volume_threshold.dl;
+	  update->volume.threshold.total = urr->volume_threshold.total;
+	}
+      if (ISSET_BIT(urr->grp.fields, UPDATE_URR_VOLUME_QUOTA))
+	{
+	  update->update_flags |= SX_URR_UPDATE_VOLUME_QUOTA;
+	  memset(&update->volume.measure.consumed, 0,
+		 sizeof(update->volume.measure.consumed));
+	  update->volume.quota.ul = urr->volume_quota.ul;
+	  update->volume.quota.dl = urr->volume_quota.dl;
+	  update->volume.quota.total = urr->volume_quota.total;
+	}
+
+      if (ISSET_BIT(urr->grp.fields, UPDATE_URR_TIME_THRESHOLD))
+	{
+	  update->update_flags |= SX_URR_UPDATE_TIME_THRESHOLD;
+	  update->time_threshold.period = urr->time_threshold;
+	}
+      if (ISSET_BIT(urr->grp.fields, UPDATE_URR_TIME_QUOTA))
+	{
+	  update->update_flags |= SX_URR_UPDATE_TIME_QUOTA;
+	  update->time_quota.period = urr->time_quota;
+	  update->time_quota.base = update->start_time;
+	}
+
       //TODO: quota_holding_time;
       //TODO: dropped_dl_traffic_threshold;
-      //TODO: monitoring_time;
+
+      if (ISSET_BIT(urr->grp.fields, UPDATE_URR_MONITORING_TIME))
+	{
+	  update->update_flags |= SX_URR_UPDATE_MONITORING_TIME;
+	  update->monitoring_time.base = urr->monitoring_time;
+	}
+
       //TODO: subsequent_volume_threshold;
       //TODO: subsequent_time_threshold;
       //TODO: inactivity_detection_time;
@@ -1470,7 +1409,7 @@ static int handle_update_urr(upf_session_t *sess, pfcp_update_urr_t *update_urr,
   return r;
 }
 
-static int handle_remove_urr(upf_session_t *sess, pfcp_remove_urr_t *remove_urr,
+static int handle_remove_urr(upf_session_t *sess, pfcp_remove_urr_t *remove_urr, f64 now,
 			     struct pfcp_group *grp,
 			     int failed_rule_id_field,
 			     pfcp_failed_rule_id_t *failed_rule_id)
@@ -1501,11 +1440,9 @@ static int handle_remove_urr(upf_session_t *sess, pfcp_remove_urr_t *remove_urr,
 }
 
 static pfcp_usage_report_t *
-build_usage_report(upf_session_t *sess, upf_urr_t *urr,
-		   u32 trigger, pfcp_usage_report_t **report)
+init_usage_report(upf_urr_t *urr, u32 trigger, pfcp_usage_report_t **report)
 {
   pfcp_usage_report_t *r;
-  vlib_counter_t v;
 
   vec_alloc(*report, 1);
   r = vec_end(*report);
@@ -1514,29 +1451,99 @@ build_usage_report(upf_session_t *sess, upf_urr_t *urr,
   r->urr_id = urr->id;
 
   SET_BIT(r->grp.fields, USAGE_REPORT_UR_SEQN);
-  r->ur_seqn = 0;   // TODO
+  r->ur_seqn = urr->seq_no;
+  urr->seq_no++;
 
   SET_BIT(r->grp.fields, USAGE_REPORT_USAGE_REPORT_TRIGGER);
   r->usage_report_trigger = trigger;
 
+  return r;
+}
+
+pfcp_usage_report_t *
+build_usage_report(upf_session_t *sess, upf_urr_t *urr,
+		   u32 trigger, f64 now, pfcp_usage_report_t **report)
+{
+  pfcp_usage_report_t *r;
+  urr_volume_t volume;
+  u32 start, end;
+
+  clib_spinlock_lock (&sess->lock);
+
+  volume = urr->volume;
+  memset(&urr->volume.measure.packets, 0, sizeof(urr->volume.measure.packets));
+  memset(&urr->volume.measure.bytes, 0, sizeof(urr->volume.measure.bytes));
+
+  clib_spinlock_unlock (&sess->lock);
+
+  if (urr->status & URR_AFTER_MONITORING_TIME)
+    {
+      r = init_usage_report(urr, USAGE_REPORT_TRIGGER_MONITORING_TIME, report);
+
+      SET_BIT(r->grp.fields, USAGE_REPORT_USAGE_INFORMATION);
+      r->usage_information = USAGE_INFORMATION_BEFORE;
+
+      /* TODO: apply proper rounding, the f64 to u32 conversion works a trunc */
+      start = urr->usage_before_monitoring_time.start_time;
+      end = urr->start_time;
+
+      if ((trigger & (USAGE_REPORT_TRIGGER_START_OF_TRAFFIC |
+		      USAGE_REPORT_TRIGGER_STOP_OF_TRAFFIC)) == 0)
+	{
+	  SET_BIT(r->grp.fields, USAGE_REPORT_START_TIME);
+	  SET_BIT(r->grp.fields, USAGE_REPORT_END_TIME);
+
+	  r->start_time = start;
+	  r->end_time = end;
+	}
+
+      SET_BIT(r->grp.fields, USAGE_REPORT_VOLUME_MEASUREMENT);
+      r->volume_measurement.fields = 7;
+
+      r->volume_measurement.ul = urr->usage_before_monitoring_time.volume.bytes.ul;
+      r->volume_measurement.dl = urr->usage_before_monitoring_time.volume.bytes.dl;
+      r->volume_measurement.total = urr->usage_before_monitoring_time.volume.bytes.total;
+
+      SET_BIT(r->grp.fields, USAGE_REPORT_DURATION_MEASUREMENT);
+      r->duration_measurement = end - start;
+
+      urr->monitoring_time.base = 0;
+
+      _vec_len(*report)++;
+    }
+
+  r = init_usage_report(urr, trigger, report);
+
+  if (urr->status & URR_AFTER_MONITORING_TIME)
+    {
+      SET_BIT(r->grp.fields, USAGE_REPORT_USAGE_INFORMATION);
+      r->usage_information = USAGE_INFORMATION_AFTER;
+    }
+
+  /* TODO: apply proper rounding, the f64 to u32 conversion works a trunc */
+  start = urr->start_time;
+  end = now;
+
   if ((trigger & (USAGE_REPORT_TRIGGER_START_OF_TRAFFIC |
 		  USAGE_REPORT_TRIGGER_STOP_OF_TRAFFIC)) == 0)
     {
-      SET_BIT(r->grp.fields, USAGE_REPORT_START_TIME); // TODO
-      SET_BIT(r->grp.fields, USAGE_REPORT_END_TIME);   // TODO
+      SET_BIT(r->grp.fields, USAGE_REPORT_START_TIME);
+      SET_BIT(r->grp.fields, USAGE_REPORT_END_TIME);
+
+      r->start_time = start;
+      r->end_time = end;
     }
 
   SET_BIT(r->grp.fields, USAGE_REPORT_VOLUME_MEASUREMENT);
   r->volume_measurement.fields = 7;
 
-  vlib_get_combined_counter (&urr->measurement.volume, URR_COUNTER_UL, &v);
-  r->volume_measurement.ul = v.bytes;
-  vlib_get_combined_counter (&urr->measurement.volume, URR_COUNTER_DL, &v);
-  r->volume_measurement.dl = v.bytes;
-  vlib_get_combined_counter (&urr->measurement.volume, URR_COUNTER_TOTAL, &v);
-  r->volume_measurement.total = v.bytes;
+  r->volume_measurement.ul = volume.measure.bytes.ul;
+  r->volume_measurement.dl = volume.measure.bytes.dl;
+  r->volume_measurement.total = volume.measure.bytes.total;
 
-  /* SET_BIT(r->grp.fields, USAGE_REPORT_DURATION_MEASUREMENT); */
+  SET_BIT(r->grp.fields, USAGE_REPORT_DURATION_MEASUREMENT);
+  r->duration_measurement = end - start;
+
   /* SET_BIT(r->grp.fields, USAGE_REPORT_APPLICATION_DETECTION_INFORMATION); */
   /* SET_BIT(r->grp.fields, USAGE_REPORT_UE_IP_ADDRESS); */
   /* SET_BIT(r->grp.fields, USAGE_REPORT_NETWORK_INSTANCE); */
@@ -1545,6 +1552,10 @@ build_usage_report(upf_session_t *sess, upf_urr_t *urr,
   /* SET_BIT(r->grp.fields, USAGE_REPORT_USAGE_INFORMATION); */
 
   _vec_len(*report)++;
+
+  urr->status &= ~URR_AFTER_MONITORING_TIME;
+  urr->start_time = now;
+  if (urr->time_threshold.base) urr->time_threshold.base = now;
 
   return r;
 }
@@ -1565,15 +1576,27 @@ static int
 handle_session_establishment_request(sx_msg_t * req, pfcp_session_establishment_request_t *msg)
 {
   pfcp_session_establishment_response_t resp;
-  ip46_address_t up_address;
-  ip46_address_t cp_address;
-  upf_session_t *sess;
+  ip46_address_t up_address = ip46_address_initializer;
+  ip46_address_t cp_address = ip46_address_initializer;
+  sx_server_main_t *sxsm = &sx_server_main;
+  upf_session_t *sess = NULL;
+  upf_node_assoc_t *assoc;
+  f64 now = sxsm->now;
   int r = 0;
   int is_ip4;
 
   memset(&resp, 0, sizeof(resp));
   SET_BIT(resp.grp.fields, SESSION_ESTABLISHMENT_RESPONSE_CAUSE);
   resp.response.cause = PFCP_CAUSE_REQUEST_REJECTED;
+
+  assoc = sx_get_association(&msg->request.node_id);
+  if (!assoc)
+    {
+      resp.response.cause = PFCP_CAUSE_NO_ESTABLISHED_SX_ASSOCIATION;
+      upf_pfcp_send_response(req, msg->f_seid.seid, PFCP_SESSION_ESTABLISHMENT_RESPONSE, &resp.grp);
+
+      return -1;
+    }
 
   SET_BIT(resp.grp.fields, SESSION_ESTABLISHMENT_RESPONSE_UP_F_SEID);
   resp.up_f_seid.seid = msg->f_seid.seid;
@@ -1596,7 +1619,7 @@ handle_session_establishment_request(sx_msg_t * req, pfcp_session_establishment_
       ip_set(&cp_address, &msg->f_seid.ip6, 0);
     }
 
-  sess = sx_create_session(req->fib_index, &up_address,
+  sess = sx_create_session(assoc, req->fib_index, &up_address,
 			   msg->f_seid.seid, &cp_address);
 
   if ((r = handle_create_pdr(sess, msg->create_pdr, &resp.grp,
@@ -1609,7 +1632,7 @@ handle_session_establishment_request(sx_msg_t * req, pfcp_session_establishment_
 			     &resp.failed_rule_id)) != 0)
     goto out_send_resp;
 
-  if ((r = handle_create_urr(sess, msg->create_urr, &resp.grp,
+  if ((r = handle_create_urr(sess, msg->create_urr, now, &resp.grp,
 			     SESSION_ESTABLISHMENT_RESPONSE_FAILED_RULE_ID,
 			     &resp.failed_rule_id)) != 0)
     goto out_send_resp;
@@ -1630,7 +1653,14 @@ handle_session_establishment_request(sx_msg_t * req, pfcp_session_establishment_
   if (r == 0)
     resp.response.cause = PFCP_CAUSE_REQUEST_ACCEPTED;
 
-  send_response(req, sess->cp_seid, PFCP_SESSION_ESTABLISHMENT_RESPONSE, &resp.grp);
+  upf_pfcp_send_response(req, sess->cp_seid, PFCP_SESSION_ESTABLISHMENT_RESPONSE, &resp.grp);
+
+  if (r != 0)
+    {
+      if (sx_disable_session(sess) != 0)
+	clib_error("failed to remove UPF session 0x%016" PRIx64, sess->cp_seid);
+      sx_free_session(sess);
+    }
 
   return r;
 }
@@ -1645,8 +1675,10 @@ static int
 handle_session_modification_request(sx_msg_t * req, pfcp_session_modification_request_t *msg)
 {
   pfcp_session_modification_response_t resp;
+  sx_server_main_t *sxsm = &sx_server_main;
   pfcp_query_urr_t *qry;
   upf_session_t *sess;
+  f64 now = sxsm->now;
   u64 cp_seid = 0;
   int r = 0;
 
@@ -1682,7 +1714,6 @@ handle_session_modification_request(sx_msg_t * req, pfcp_session_modification_re
 			 BIT(SESSION_MODIFICATION_REQUEST_UPDATE_BAR)))
     {
       /* invoke the update process only if a update is include */
-
       sx_update_session(sess);
 
       if ((r = handle_create_pdr(sess, msg->create_pdr, &resp.grp,
@@ -1715,17 +1746,17 @@ handle_session_modification_request(sx_msg_t * req, pfcp_session_modification_re
 				 &resp.failed_rule_id)) != 0)
 	goto out_send_resp;
 
-      if ((r = handle_create_urr(sess, msg->create_urr, &resp.grp,
+      if ((r = handle_create_urr(sess, msg->create_urr, now, &resp.grp,
 				 SESSION_MODIFICATION_RESPONSE_FAILED_RULE_ID,
 				 &resp.failed_rule_id)) != 0)
 	goto out_send_resp;
 
-      if ((r = handle_update_urr(sess, msg->update_urr, &resp.grp,
+      if ((r = handle_update_urr(sess, msg->update_urr, now, &resp.grp,
 				 SESSION_MODIFICATION_RESPONSE_FAILED_RULE_ID,
 				 &resp.failed_rule_id)) != 0)
 	goto out_send_resp;
 
-      if ((r = handle_remove_urr(sess, msg->remove_urr, &resp.grp,
+      if ((r = handle_remove_urr(sess, msg->remove_urr, now, &resp.grp,
 				 SESSION_MODIFICATION_RESPONSE_FAILED_RULE_ID,
 				 &resp.failed_rule_id)) != 0)
 	goto out_send_resp;
@@ -1743,11 +1774,11 @@ handle_session_modification_request(sx_msg_t * req, pfcp_session_modification_re
 	{
 	  upf_urr_t *urr;
 
-	  if (!(urr = sx_get_urr(sess, SX_PENDING, qry->urr_id)))
+	  if (!(urr = sx_get_urr(sess, SX_ACTIVE, qry->urr_id)))
 	    continue;
 
 	  build_usage_report(sess, urr, USAGE_REPORT_TRIGGER_IMMEDIATE_REPORT,
-			     &resp.usage_report);
+			     now, &resp.usage_report);
 	}
     }
   else if (ISSET_BIT(msg->grp.fields, SESSION_MODIFICATION_REQUEST_SXSMREQ_FLAGS) &&
@@ -1765,7 +1796,7 @@ handle_session_modification_request(sx_msg_t * req, pfcp_session_modification_re
 	  vec_foreach(urr, active->urr)
 	    {
 	      build_usage_report(sess, urr, USAGE_REPORT_TRIGGER_IMMEDIATE_REPORT,
-				 &resp.usage_report);
+				 now, &resp.usage_report);
 	    }
 	}
     }
@@ -1773,11 +1804,13 @@ handle_session_modification_request(sx_msg_t * req, pfcp_session_modification_re
  out_update_finish:
   sx_update_finish(sess);
 
+  fformat(stderr, "%U", format_sx_session, sess, SX_ACTIVE);
+
  out_send_resp:
   if (r == 0)
     resp.response.cause = PFCP_CAUSE_REQUEST_ACCEPTED;
 
-  send_response(req, cp_seid, PFCP_SESSION_MODIFICATION_RESPONSE, &resp.grp);
+  upf_pfcp_send_response(req, cp_seid, PFCP_SESSION_MODIFICATION_RESPONSE, &resp.grp);
 
  return r;
 }
@@ -1791,7 +1824,9 @@ handle_session_modification_response(sx_msg_t * req, pfcp_session_modification_r
 static int
 handle_session_deletion_request(sx_msg_t * req, pfcp_session_deletion_request_t *msg)
 {
+  sx_server_main_t *sxsm = &sx_server_main;
   pfcp_session_deletion_response_t resp;
+  f64 now = sxsm->now;
   upf_session_t *sess;
   struct rules *active;
   u64 cp_seid = 0;
@@ -1829,7 +1864,7 @@ handle_session_deletion_request(sx_msg_t * req, pfcp_session_deletion_request_t 
       vec_foreach(urr, active->urr)
 	{
 	  build_usage_report(sess, urr, USAGE_REPORT_TRIGGER_TERMINATION_REPORT,
-			     &resp.usage_report);
+			     now, &resp.usage_report);
 	}
     }
 
@@ -1840,7 +1875,7 @@ handle_session_deletion_request(sx_msg_t * req, pfcp_session_deletion_request_t 
       resp.response.cause = PFCP_CAUSE_REQUEST_ACCEPTED;
     }
 
-  send_response(req, cp_seid, PFCP_SESSION_DELETION_RESPONSE, &resp.grp);
+  upf_pfcp_send_response(req, cp_seid, PFCP_SESSION_DELETION_RESPONSE, &resp.grp);
 
   return r;
 }
@@ -1973,5 +2008,13 @@ void upf_pfcp_error_report(upf_session_t * sx, gtp_error_ind_t * error)
 
   vec_add1(req.error_indication_report.f_teid, f_teid);
 
-  send_session_request(sx, PFCP_SESSION_REPORT_REQUEST, &req.grp);
+  upf_pfcp_send_request(sx, PFCP_SESSION_REPORT_REQUEST, &req.grp);
 }
+
+/*
+ * fd.io coding-style-patch-verification: ON
+ *
+ * Local Variables:
+ * eval: (c-set-style "gnu")
+ * End:
+ */
