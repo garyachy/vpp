@@ -956,7 +956,7 @@ typedef struct
   pfcp_network_instance_t network_instance;
   pfcp_ue_ip_address_t ue_ip_address;
   pfcp_sdf_filter_t sdf_filter;
-  pfcp_application_id_t *application_id;
+  pfcp_application_id_t application_id;
   pfcp_ethernet_pdu_session_information_t ethernet_pdu_session_information;
   pfcp_ethernet_packet_filter_t ethernet_packet_filter;
   pfcp_qfi_t qfi;
