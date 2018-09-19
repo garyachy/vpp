@@ -18,9 +18,8 @@
 #ifndef __included_upf_dpi_h__
 #define __included_upf_dpi_h__
 
-#include <vnet/ip/ip.h>
-
-typedef u8 * regex_t;
+#include <stddef.h>
+#include <upf/upf.h>
 
 typedef struct {
   /* App index */
@@ -33,6 +32,12 @@ int upf_dpi_add_multi_regex(upf_dpi_args_t * args, u32 * db_index, u8 create);
 int upf_dpi_lookup(u32 db_index, u8 * str, uint16_t length, u32 * app_index);
 int upf_dpi_remove(u32 db_index);
 int upf_dpi_get_db_contents(u32 db_index, regex_t ** expressions, u32 ** ids);
+int upf_app_add_del (upf_main_t * sm, u8 * name, int add);
+int upf_rule_add_del (upf_main_t * sm, u8 * name, u32 id,
+                      int add, upf_rule_args_t * args);
+void foreach_upf_flows (BVT (clib_bihash_kv) * kvp, void * arg);
+
+int upf_add_multi_regex(u8 ** apps, u32 * db_index, u8 create);
 
 #define MIN(x,y) (((x)<(y))?(x):(y))
 

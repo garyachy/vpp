@@ -39,6 +39,7 @@
 
 #include "pfcp.h"
 #include "upf.h"
+#include "dpi.h"
 #include "upf_pfcp.h"
 #include "upf_pfcp_api.h"
 
