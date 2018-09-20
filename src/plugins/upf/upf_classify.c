@@ -173,7 +173,7 @@ upf_classify (vlib_main_t * vm, vlib_node_runtime_t * node,
 		      vnet_buffer (b)->gtpu.pdr_idx = pdr - active->pdr;
 		      far = sx_get_far_by_id(active, pdr->far_id);
 
-		      if (flow && !flow->app_index)
+		      if (flow && (flow->app_index == ~0))
 		        {
 		          upf_dpi_parse_ip4_packet((ip4_header_t *)pl,
 		                                   pdr->dpi_db_id, &flow->app_index);
@@ -214,7 +214,7 @@ upf_classify (vlib_main_t * vm, vlib_node_runtime_t * node,
 		      pdr = active->pdr + results[0] - 1;
 		      far = sx_get_far_by_id(active, pdr->far_id);
 
-		      if (flow && !flow->app_index)
+		      if (flow && (flow->app_index == ~0))
 		        {
 		          upf_dpi_parse_ip4_packet((ip4_header_t *)pl,
 		                                 pdr->dpi_db_id, &flow->app_index);

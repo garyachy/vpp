@@ -19,12 +19,13 @@
 #define _LGPL_SOURCE            /* LGPL v3.0 is compatible with Apache 2.0 */
 
 #include <arpa/inet.h>
-
+#include <urcu-qsbr.h>          /* QSBR RCU flavor */
+#include <vlib/vlib.h>
 #include <vppinfra/types.h>
 #include <vppinfra/vec.h>
 #include <vppinfra/pool.h>
 
-#include <hs.h>
+#include <hs/hs.h>
 #include "upf/dpi.h"
 #include <upf/upf_pfcp.h>
 
@@ -48,14 +49,6 @@ upf_dpi_get_db_contents(u32 db_index, regex_t ** expressions, u32 ** ids)
 {
   upf_dpi_entry_t *entry = NULL;
 
-  if (!db_index)
-    return -1;
-
-  if (pool_elts(upf_dpi_db) < db_index)
-    return -1;
-
-  db_index -= 1;
-
   entry = pool_elt_at_index (upf_dpi_db, db_index);
   if (!entry)
     return -1;
@@ -73,7 +66,6 @@ upf_dpi_add_multi_regex(upf_dpi_args_t * args, u32 * db_index, u8 create)
   hs_compile_error_t *compile_err = NULL;
   upf_dpi_args_t *arg = NULL;
   int error = 0;
-  u32 index = 0;
 
   if (!args)
     return -1;
@@ -83,14 +75,7 @@ upf_dpi_add_multi_regex(upf_dpi_args_t * args, u32 * db_index, u8 create)
 
   if (!create)
     {
-      if (!*db_index)
-        return -1;
-
-      if (pool_elts(upf_dpi_db) < *db_index)
-        return -1;
-
-      index = *db_index - 1;
-      entry = pool_elt_at_index (upf_dpi_db, index);
+      entry = pool_elt_at_index (upf_dpi_db, *db_index);
       if (!entry)
         return -1;
 
@@ -106,8 +91,7 @@ upf_dpi_add_multi_regex(upf_dpi_args_t * args, u32 * db_index, u8 create)
         return -1;
 
       memset(entry, 0, sizeof(*entry));
-      index = entry - upf_dpi_db;
-      *db_index = index + 1;
+      *db_index = entry - upf_dpi_db;
     }
 
   vec_foreach (arg, args)
@@ -162,14 +146,6 @@ upf_dpi_lookup(u32 db_index, u8 * str, uint16_t length, u32 * app_index)
   int ret = 0;
   upf_dpi_cb_args_t args = {};
 
-  if (!db_index)
-    return -1;
-
-  if (pool_elts(upf_dpi_db) < db_index)
-    return -1;
-
-  db_index -= 1;
-
   entry = pool_elt_at_index (upf_dpi_db, db_index);
   if (!entry)
     return -1;
@@ -191,14 +167,6 @@ int
 upf_dpi_remove(u32 db_index)
 {
   upf_dpi_entry_t *entry = NULL;
-
-  if (!db_index)
-    return -1;
-
-  if (pool_elts(upf_dpi_db) < db_index)
-    return -1;
-
-  db_index -= 1;
 
   entry = pool_elt_at_index (upf_dpi_db, db_index);
   if (!entry)
@@ -232,7 +200,7 @@ upf_add_rules(u32 app_index, upf_dpi_app_t *app, upf_dpi_args_t ** args)
 
      if (rule->path)
        {
-         arg.index = app_index + 1;
+         arg.index = app_index;
          arg.rule = rule->path;
          vec_add1(*args, arg);
        }
@@ -286,6 +254,7 @@ upf_dpi_app_add_command_fn (vlib_main_t * vm,
   upf_session_t *sess = NULL;
   upf_pdr_t *pdr = NULL;
   u16 pdr_id = 0;
+  u8 add_flag = ~0;
 
   /* Get a line of input. */
   if (!unformat_user (input, unformat_line_input, line_input))
@@ -293,14 +262,16 @@ upf_dpi_app_add_command_fn (vlib_main_t * vm,
 
   while (unformat_check_input (line_input) != UNFORMAT_END_OF_INPUT)
     {
-      if (unformat (line_input, "session %lu pdr %u name %s",
+      if (unformat (line_input, "add session 0x%lx pdr %u name %s",
                     &up_seid, &pdr_id, &name))
         {
+          add_flag = 1;
           break;
         }
-      if (unformat (line_input, "session 0x%lx pdr %u name %s",
+      if (unformat (line_input, "update session 0x%lx pdr %u name %s",
                     &up_seid, &pdr_id, &name))
         {
+          add_flag = 0;
           break;
         }
       else
@@ -327,11 +298,11 @@ upf_dpi_app_add_command_fn (vlib_main_t * vm,
 
   vec_add1(apps, name);
 
-  if (pdr->dpi_db_id > 0)
+  if (add_flag == 0)
     {
       res = upf_add_multi_regex(apps, &pdr->dpi_db_id, 0);
     }
-  else
+  else if (add_flag == 1)
     {
       res = upf_add_multi_regex(apps, &pdr->dpi_db_id, 1);
     }
@@ -353,8 +324,8 @@ done:
 /* *INDENT-OFF* */
 VLIB_CLI_COMMAND (upf_dpi_app_add_command, static) =
 {
-  .path = "upf dpi app add",
-  .short_help = "upf dpi app add session <id> pdr <id> name <app name>",
+  .path = "upf dpi app",
+  .short_help = "upf dpi app <add|update> session <id> pdr <id> name <app name>",
   .function = upf_dpi_app_add_command_fn,
 };
 /* *INDENT-ON* */
@@ -369,7 +340,6 @@ upf_dpi_url_test_command_fn (vlib_main_t * vm,
   clib_error_t *error = NULL;
   u32 app_index = 0;
   u32 id = 0;
-  int res = 0;
   upf_dpi_app_t *app = NULL;
   upf_main_t * sm = &upf_main;
 
@@ -391,12 +361,10 @@ upf_dpi_url_test_command_fn (vlib_main_t * vm,
         }
     }
 
-  res = upf_dpi_lookup(id, url, vec_len(url), &app_index);
-  if ((res == 0) && 
-      (app_index > 0) && 
-      (pool_elts(sm->upf_apps) >= app_index))
+  upf_dpi_lookup(id, url, vec_len(url), &app_index);
+  if (app_index != ~0)
     {
-      app = pool_elt_at_index (sm->upf_apps, app_index - 1);
+      app = pool_elt_at_index (sm->upf_apps, app_index);
       if (app)
         {
           vlib_cli_output (vm, "Matched app: %s", app->name);
@@ -466,11 +434,11 @@ upf_dpi_show_db_command_fn (vlib_main_t * vm,
           regex = &expressions[i];
           app_id = ids[i];
 
-          if ((app_id > 0) && 
-              (pool_elts(sm->upf_apps) >= app_id))
+          if (app_id != ~0)
             {
-              app = pool_elt_at_index (sm->upf_apps, app_id - 1);
-          }
+              app = pool_elt_at_index (sm->upf_apps, app_id);
+            }
+
           vlib_cli_output (vm, "regex: %s, app: %s", *regex, app->name);
         }
     }
@@ -1004,7 +972,6 @@ foreach_upf_flows (BVT (clib_bihash_kv) * kvp,
   const char *none = "None";
   upf_main_t * sm = &upf_main;
   vlib_main_t *vm = sm->vlib_main;
-  u32 app_index = 0;
 
   if (dlist_is_empty(fmt->ht_lines, ht_line_head_index))
     return;
@@ -1018,13 +985,9 @@ foreach_upf_flows (BVT (clib_bihash_kv) * kvp,
       flow = pool_elt_at_index(fm->flows, e->value);
       index = e->next;
 
-      if (flow->app_index > 0)
+      if (flow->app_index != ~0)
         {
-          if (pool_elts(sm->upf_apps) >= flow->app_index)
-            {
-              app_index = flow->app_index - 1;
-              app = pool_elt_at_index (sm->upf_apps, app_index);
-            }
+          app = pool_elt_at_index (sm->upf_apps, flow->app_index);
         }
 
       app_name = (app != NULL) ? (const char*)app->name : none;

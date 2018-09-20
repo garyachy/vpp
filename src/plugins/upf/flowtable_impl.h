@@ -437,6 +437,9 @@ flowtable_entry_lookup_create(flowtable_main_t * fm,
     f->lifetime = TIMER_DEFAULT_LIFETIME;
     f->expire = now + TIMER_DEFAULT_LIFETIME;
 
+    /* init app id */
+    f->app_index = ~0;
+
     /* update stats */
     f->stats[direction].pkts++;
 
