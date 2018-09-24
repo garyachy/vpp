@@ -262,6 +262,7 @@ typedef struct {
   u8 outer_header_removal;
   u16 far_id;
   u16 *urr_ids;
+  u8 *app_name;
   u32 dpi_db_id;
 } upf_pdr_t;
 
@@ -514,6 +515,8 @@ typedef struct {
   uword* rules_by_id;
   /* Rules vector */
   upf_dpi_rule_t *rules;
+  /* DPI DB id */
+  u32 db_index;
 } upf_dpi_app_t;
 
 typedef struct {

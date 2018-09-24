@@ -21,6 +21,8 @@
 #include <stddef.h>
 #include <upf/upf.h>
 
+#define UPF_DPI_APPLICATION_NAME_LEN_MAX 64
+
 typedef struct {
   /* App index */
   u32 index;
@@ -28,7 +30,7 @@ typedef struct {
   regex_t rule;
 } upf_dpi_args_t;
 
-int upf_dpi_add_multi_regex(upf_dpi_args_t * args, u32 * db_index, u8 create);
+int upf_dpi_add_multi_regex(upf_dpi_args_t * args, u32 * db_index);
 int upf_dpi_lookup(u32 db_index, u8 * str, uint16_t length, u32 * app_index);
 int upf_dpi_remove(u32 db_index);
 int upf_dpi_get_db_contents(u32 db_index, regex_t ** expressions, u32 ** ids);
@@ -37,7 +39,7 @@ int upf_rule_add_del (upf_main_t * sm, u8 * name, u32 id,
                       int add, upf_rule_args_t * args);
 void foreach_upf_flows (BVT (clib_bihash_kv) * kvp, void * arg);
 
-int upf_add_multi_regex(u8 ** apps, u32 * db_index, u8 create);
+int upf_dpi_get_db_id(u8 * app_name, u32 * db_index);
 
 #define MIN(x,y) (((x)<(y))?(x):(y))
 
@@ -50,6 +52,9 @@ upf_dpi_parse_ip4_packet(ip4_header_t * ip4, u32 dpi_db_id, u32 * app_index)
   u8 *version = NULL;
   u16 uri_length = 0;
   int res = 0;
+
+  if (dpi_db_id == ~0)
+    return -1;
 
   if (ip4->protocol != IP_PROTOCOL_TCP)
     return -1;
