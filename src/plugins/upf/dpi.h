@@ -56,6 +56,8 @@ upf_dpi_parse_ip4_packet(ip4_header_t * ip4, u32 path_db_id,
   u16 uri_length = 0;
   u16 host_length = 0;
   int res = 0;
+  u32 path_app_index = ~0;
+  u32 host_app_index = ~0;
 
   if (path_db_id == ~0)
     return -1;
@@ -94,10 +96,10 @@ upf_dpi_parse_ip4_packet(ip4_header_t * ip4, u32 path_db_id,
 
   res = upf_dpi_lookup(path_db_id, http,
                        MIN(uri_length, tcp_payload_len),
-                       app_index);
+                       &path_app_index);
 
-  if (*app_index != ~0)
-    return 0;
+  if ((res < 0) || (path_app_index == ~0))
+    return -1;
 
   host = (u8*)strstr((const char*)http, "Host");
   if (host == NULL)
@@ -111,9 +113,17 @@ upf_dpi_parse_ip4_packet(ip4_header_t * ip4, u32 path_db_id,
 
   res = upf_dpi_lookup(host_db_id, host,
                        MIN(host_length, tcp_payload_len),
-                       app_index);
+                       &host_app_index);
 
-  return res;
+  if ((res < 0) || (host_app_index == ~0))
+    return -1;
+
+  if (path_app_index != host_app_index)
+    return -1;
+
+  *app_index = host_app_index;
+
+  return 0;
 }
 
 #endif /* __included_upf_dpi_h__ */

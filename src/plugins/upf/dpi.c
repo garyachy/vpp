@@ -1076,8 +1076,7 @@ foreach_upf_flows (BVT (clib_bihash_kv) * kvp,
   u32 ht_line_head_index = (u32) kvp->value;
   flowtable_main_t * fm = &flowtable_main;
   upf_dpi_app_t *app = NULL;
-  const char *app_name = NULL;
-  const char *none = "None";
+  u8 *app_name = NULL;
   upf_main_t * sm = &upf_main;
   vlib_main_t *vm = sm->vlib_main;
 
@@ -1098,7 +1097,10 @@ foreach_upf_flows (BVT (clib_bihash_kv) * kvp,
           app = pool_elt_at_index (sm->upf_apps, flow->app_index);
         }
 
-      app_name = (app != NULL) ? (const char*)app->name : none;
+      if (app)
+        app_name = format (0, "%v", app->name);
+      else
+        app_name = format (0, "%s", "None");
 
       vlib_cli_output (vm, "%llu: proto 0x%x, %U(%u) <-> %U(%u), "
                            "UL pkt %u, DL pkt %u, app %v",
@@ -1111,6 +1113,8 @@ foreach_upf_flows (BVT (clib_bihash_kv) * kvp,
                        flow->stats[0].pkts,
                        flow->stats[1].pkts,
                        app_name);
+
+      vec_free(app_name);
     }
 }
 
