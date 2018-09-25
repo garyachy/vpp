@@ -316,7 +316,7 @@ upf_dpi_all_pdr_update(u8* app_name)
          if (pdr->app_name == NULL)
            continue;
 
-         dpi_debug("%s <> %s", pdr->app_name, app_name);
+         dpi_debug("%v <> %v", pdr->app_name, app_name);
 
          if (strncmp((const char*)pdr->app_name,
                      (const char*)app_name,
@@ -351,13 +351,13 @@ upf_dpi_app_add_command_fn (vlib_main_t * vm,
 
   while (unformat_check_input (line_input) != UNFORMAT_END_OF_INPUT)
     {
-      if (unformat (line_input, "add session 0x%lx pdr %u name %s",
+      if (unformat (line_input, "add session 0x%lx pdr %u name %_%v%_",
                     &up_seid, &pdr_id, &name))
         {
           add_flag = 1;
           break;
         }
-      if (unformat (line_input, "update session 0x%lx pdr %u name %s",
+      if (unformat (line_input, "update session 0x%lx pdr %u name %_%v%_",
                     &up_seid, &pdr_id, &name))
         {
           add_flag = 0;
@@ -435,7 +435,7 @@ upf_dpi_url_test_command_fn (vlib_main_t * vm,
 
   while (unformat_check_input (line_input) != UNFORMAT_END_OF_INPUT)
     {
-      if (unformat (line_input, "%u url %s", &id, &url))
+      if (unformat (line_input, "%u url %_%v%_", &id, &url))
         {
           break;
         }
@@ -453,7 +453,7 @@ upf_dpi_url_test_command_fn (vlib_main_t * vm,
       app = pool_elt_at_index (sm->upf_apps, app_index);
       if (app)
         {
-          vlib_cli_output (vm, "Matched app: %s", app->name);
+          vlib_cli_output (vm, "Matched app: %v", app->name);
         }
     }
   else
@@ -502,7 +502,7 @@ upf_dpi_show_db_command_fn (vlib_main_t * vm,
 
   while (unformat_check_input (line_input) != UNFORMAT_END_OF_INPUT)
     {
-    if (unformat (line_input, "%s", &name))
+    if (unformat (line_input, "%_%v%_", &name))
         {
           break;
         }
@@ -534,7 +534,7 @@ upf_dpi_show_db_command_fn (vlib_main_t * vm,
               app = pool_elt_at_index (sm->upf_apps, app_id);
             }
 
-          vlib_cli_output (vm, "regex: %s, app: %s", *regex, app->name);
+          vlib_cli_output (vm, "regex: %v, app: %v", *regex, app->name);
         }
     }
   else
@@ -656,7 +656,7 @@ upf_create_app_command_fn (vlib_main_t * vm,
 
   while (unformat_check_input (line_input) != UNFORMAT_END_OF_INPUT)
     {
-      if (unformat (line_input, "%s", &name))
+      if (unformat (line_input, "%_%v%_", &name))
         break;
       else
         {
@@ -717,7 +717,7 @@ upf_delete_app_command_fn (vlib_main_t * vm,
 
   while (unformat_check_input (line_input) != UNFORMAT_END_OF_INPUT)
     {
-      if (unformat (line_input, "%s", &name))
+      if (unformat (line_input, "%_%v%_", &name))
         break;
       else
         {
@@ -839,7 +839,7 @@ upf_application_rule_add_del_command_fn (vlib_main_t * vm,
 
   while (unformat_check_input (line_input) != UNFORMAT_END_OF_INPUT)
     {
-      if (unformat (line_input, "%s rule %u",
+      if (unformat (line_input, "%_%v%_ rule %u",
                     &app_name, &rule_index))
         {
           if (unformat (line_input, "del"))
@@ -855,9 +855,9 @@ upf_application_rule_add_del_command_fn (vlib_main_t * vm,
                 break;
               else if (unformat (line_input, "ip src %s", &src_ip))
                 break;
-              else if (unformat (line_input, "l7 http host %s", &host))
+              else if (unformat (line_input, "l7 http host %_%v%_", &host))
                 {
-                  if (unformat (line_input, "path %s", &path))
+                  if (unformat (line_input, "path %_%v%_", &path))
                     break;
                 }
               else
@@ -940,10 +940,10 @@ upf_show_rules(vlib_main_t * vm, upf_dpi_app_t * app)
      vlib_cli_output (vm, "rule: %u", rule->id);
 
      if (rule->host)
-       vlib_cli_output (vm, "host: %s", rule->host);
+       vlib_cli_output (vm, "host: %v", rule->host);
 
      if (rule->path)
-       vlib_cli_output (vm, "path: %s", rule->path);
+       vlib_cli_output (vm, "path: %v", rule->path);
   }));
   /* *INDENT-ON* */
 }
@@ -966,7 +966,7 @@ upf_show_app_command_fn (vlib_main_t * vm,
 
   while (unformat_check_input (line_input) != UNFORMAT_END_OF_INPUT)
     {
-      if (unformat (line_input, "%s", &name))
+      if (unformat (line_input, "%_%v%_", &name))
         {
           break;
         }
@@ -1044,7 +1044,7 @@ upf_show_apps_command_fn (vlib_main_t * vm,
   ({
      upf_dpi_app_t *app = NULL;
      app = pool_elt_at_index(sm->upf_apps, index);
-     vlib_cli_output (vm, "app: %s", app->name);
+     vlib_cli_output (vm, "app: %v", app->name);
 
      if (verbose)
        {
@@ -1101,7 +1101,7 @@ foreach_upf_flows (BVT (clib_bihash_kv) * kvp,
       app_name = (app != NULL) ? (const char*)app->name : none;
 
       vlib_cli_output (vm, "%llu: proto 0x%x, %U(%u) <-> %U(%u), "
-                           "UL pkt %u, DL pkt %u, app %s",
+                           "UL pkt %u, DL pkt %u, app %v",
                        flow->infos.data.flow_id,
                        flow->sig.s.ip4.proto,
                        format_ip4_address, &flow->sig.s.ip4.src,
