@@ -263,7 +263,8 @@ typedef struct {
   u16 far_id;
   u16 *urr_ids;
   u8 *app_name;
-  u32 dpi_db_id;
+  u32 dpi_path_db_id;
+  u32 dpi_host_db_id;
 } upf_pdr_t;
 
 /* Forward Action Rules - Forwarding Parameters */
@@ -516,7 +517,8 @@ typedef struct {
   /* Rules vector */
   upf_dpi_rule_t *rules;
   /* DPI DB id */
-  u32 db_index;
+  u32 path_db_index;
+  u32 host_db_index;
 } upf_dpi_app_t;
 
 typedef struct {

@@ -199,7 +199,7 @@ upf_dpi_remove(u32 db_index)
 }
 
 static void
-upf_add_rules(u32 app_index, upf_dpi_app_t *app, upf_dpi_args_t ** args)
+upf_add_rules(u32 app_index, upf_dpi_app_t *app, upf_dpi_args_t ** args, u8 path)
 {
   u32 index = 0;
   u32 rule_index = 0;
@@ -214,15 +214,34 @@ upf_add_rules(u32 app_index, upf_dpi_app_t *app, upf_dpi_args_t ** args)
      if (rule->path)
        {
          arg.index = app_index;
-         arg.rule = rule->path;
+         if (path)
+           {
+             arg.rule = rule->path;
+           }
+         else
+           {
+             arg.rule = rule->host;
+           }
          vec_add1(*args, arg);
        }
   }));
   /* *INDENT-ON* */
 }
 
+static inline void
+upf_add_path_rules(u32 app_index, upf_dpi_app_t *app, upf_dpi_args_t ** args)
+{
+  return upf_add_rules(app_index, app, args, 1);
+}
+
+static inline void
+upf_add_host_rules(u32 app_index, upf_dpi_app_t *app, upf_dpi_args_t ** args)
+{
+  return upf_add_rules(app_index, app, args, 0);
+}
+
 int
-upf_dpi_get_db_id(u8 * app_name, u32 * db_index)
+upf_dpi_get_db_id(u8 * app_name, u32 * path_db_index, u32 * host_db_index)
 {
   uword *p = NULL;
   upf_main_t * sm = &upf_main;
@@ -235,13 +254,15 @@ upf_dpi_get_db_id(u8 * app_name, u32 * db_index)
 
   app = pool_elt_at_index(sm->upf_apps, p[0]);
 
-  *db_index = app->db_index; 
+  *path_db_index = app->path_db_index; 
+  *host_db_index = app->host_db_index; 
 
   return 0;
 }
 
 static int
-upf_dpi_create_update_db(u8 * app_name, u32 * db_index)
+upf_dpi_create_update_db(u8 * app_name, u32 * path_db_index, 
+                         u32 * host_db_index)
 {
   uword *p = NULL;
   upf_dpi_args_t *args = NULL;
@@ -255,12 +276,22 @@ upf_dpi_create_update_db(u8 * app_name, u32 * db_index)
     return -1;
 
   app = pool_elt_at_index(sm->upf_apps, p[0]);
-  upf_add_rules(p[0], app, &args);
+
+  upf_add_path_rules(p[0], app, &args);
 
   if (!args)
     return -1;
 
-  res = upf_dpi_add_multi_regex(args, db_index);
+  res = upf_dpi_add_multi_regex(args, path_db_index);
+
+  vec_free(args);
+
+  upf_add_host_rules(p[0], app, &args);
+
+  if (!args)
+    return -1;
+
+  res = upf_dpi_add_multi_regex(args, host_db_index);
 
   vec_free(args);
 
@@ -291,7 +322,8 @@ upf_dpi_all_pdr_update(u8* app_name)
                      (const char*)app_name,
                      UPF_DPI_APPLICATION_NAME_LEN_MAX) == 0)
          {
-           upf_dpi_get_db_id(app_name, &pdr->dpi_db_id);
+           upf_dpi_get_db_id(app_name, &pdr->dpi_path_db_id,
+                             &pdr->dpi_host_db_id);
          }
        }
   }));
@@ -355,15 +387,16 @@ upf_dpi_app_add_command_fn (vlib_main_t * vm,
 
   if (add_flag == 0)
     {
-      res = upf_dpi_get_db_id(name, &pdr->dpi_db_id);
+      res = upf_dpi_get_db_id(name, &pdr->dpi_path_db_id, &pdr->dpi_host_db_id);
     }
   else if (add_flag == 1)
     {
-      res = upf_dpi_get_db_id(name, &pdr->dpi_db_id);
+      res = upf_dpi_get_db_id(name, &pdr->dpi_path_db_id, &pdr->dpi_host_db_id);
     }
 
   if (res == 0)
-    vlib_cli_output (vm, "DB id %u", pdr->dpi_db_id);
+    vlib_cli_output (vm, "path DB id: %u, host DB id: %u",
+                     pdr->dpi_path_db_id, pdr->dpi_host_db_id);
   else
     vlib_cli_output (vm, "Could not build DPI DB");
 
@@ -452,7 +485,8 @@ upf_dpi_show_db_command_fn (vlib_main_t * vm,
   unformat_input_t _line_input, *line_input = &_line_input;
   clib_error_t *error = NULL;
   u8 *name = NULL;
-  u32 id = 0;
+  u32 path_id = 0;
+  u32 host_id = 0;
   int res = 0;
   regex_t *regex = NULL;
   regex_t *expressions = NULL;
@@ -480,14 +514,14 @@ upf_dpi_show_db_command_fn (vlib_main_t * vm,
         }
     }
 
-  res = upf_dpi_get_db_id(name, &id);
-  if (res < 0 || id == ~0)
+  res = upf_dpi_get_db_id(name, &path_id, &host_id);
+  if (res < 0 || path_id == ~0)
     {
       error = clib_error_return (0, "DB does not exist...");
       goto done;
     }
 
-  res = upf_dpi_get_db_contents(id, &expressions, &ids);
+  res = upf_dpi_get_db_contents(path_id, &expressions, &ids);
   if (res == 0)
     {
       for (i = 0; i < vec_len(expressions); i++)
@@ -573,7 +607,8 @@ vnet_upf_app_add_del(u8 * name, u8 add)
 
       app->name = vec_dup(name);
       app->rules_by_id = hash_create_mem (0, sizeof (u32), sizeof (uword));
-      app->db_index = ~0;
+      app->path_db_index = ~0;
+      app->host_db_index = ~0;
 
       hash_set_mem (sm->upf_app_by_name, app->name, app - sm->upf_apps);
     }
@@ -594,7 +629,8 @@ vnet_upf_app_add_del(u8 * name, u8 add)
       }));
       /* *INDENT-ON* */
 
-      upf_dpi_remove(app->db_index);
+      upf_dpi_remove(app->path_db_index);
+      upf_dpi_remove(app->host_db_index);
       vec_free (app->name);
       hash_free(app->rules_by_id);
       pool_free(app->rules);
@@ -770,7 +806,8 @@ vnet_upf_rule_add_del(u8 * app_name, u32 rule_index, u8 add,
       pool_put (app->rules, rule);
     }
 
-  res = upf_dpi_create_update_db(app_name, &app->db_index);
+  res = upf_dpi_create_update_db(app_name, &app->path_db_index,
+                                 &app->host_db_index);
   if (res < 0)
     return res;
 

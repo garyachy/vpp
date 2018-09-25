@@ -39,21 +39,28 @@ int upf_rule_add_del (upf_main_t * sm, u8 * name, u32 id,
                       int add, upf_rule_args_t * args);
 void foreach_upf_flows (BVT (clib_bihash_kv) * kvp, void * arg);
 
-int upf_dpi_get_db_id(u8 * app_name, u32 * db_index);
+int upf_dpi_get_db_id(u8 * app_name, u32 * path_db_index, u32 * host_db_index);
 
 #define MIN(x,y) (((x)<(y))?(x):(y))
 
 always_inline int
-upf_dpi_parse_ip4_packet(ip4_header_t * ip4, u32 dpi_db_id, u32 * app_index)
+upf_dpi_parse_ip4_packet(ip4_header_t * ip4, u32 path_db_id,
+                         u32 host_db_id, u32 * app_index)
 {
   int tcp_payload_len = 0;
   tcp_header_t *tcp = NULL;
   u8 *http = NULL;
   u8 *version = NULL;
+  u8 *host = NULL;
+  u8 *host_end = NULL;
   u16 uri_length = 0;
+  u16 host_length = 0;
   int res = 0;
 
-  if (dpi_db_id == ~0)
+  if (path_db_id == ~0)
+    return -1;
+
+  if (host_db_id == ~0)
     return -1;
 
   if (ip4->protocol != IP_PROTOCOL_TCP)
@@ -85,8 +92,25 @@ upf_dpi_parse_ip4_packet(ip4_header_t * ip4, u32 dpi_db_id, u32 * app_index)
 
   uri_length = version - http;
 
-  res = upf_dpi_lookup(dpi_db_id, http,
+  res = upf_dpi_lookup(path_db_id, http,
                        MIN(uri_length, tcp_payload_len),
+                       app_index);
+
+  if (*app_index != ~0)
+    return 0;
+
+  host = (u8*)strstr((const char*)http, "Host");
+  if (host == NULL)
+    return -1;
+
+  host_end = (u8*)strchr((const char*)host, '\r');
+  if (host_end == NULL)
+    return -1;
+
+  host_length = host_end - host;
+
+  res = upf_dpi_lookup(host_db_id, host,
+                       MIN(host_length, tcp_payload_len),
                        app_index);
 
   return res;

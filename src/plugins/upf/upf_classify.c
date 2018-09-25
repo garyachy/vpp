@@ -176,9 +176,11 @@ upf_classify (vlib_main_t * vm, vlib_node_runtime_t * node,
 		      if (flow && (flow->app_index == ~0))
 		        {
 		          upf_dpi_parse_ip4_packet((ip4_header_t *)pl,
-		                                   pdr->dpi_db_id, &flow->app_index);
-		          gtp_debug("PDR %u, flow app id: %u, DPI DB id %u\n",
-		                    pdr->id, flow->app_index, pdr->dpi_db_id);
+		                                   pdr->dpi_path_db_id,
+		                                   pdr->dpi_host_db_id,
+		                                   &flow->app_index);
+		          gtp_debug("PDR %u, flow app id: %u, path DPI DB id %u\n",
+		                    pdr->id, flow->app_index, pdr->dpi_path_db_id);
 		        }
 		    }
 		}
@@ -218,9 +220,11 @@ upf_classify (vlib_main_t * vm, vlib_node_runtime_t * node,
 		      if (flow && (flow->app_index == ~0))
 		        {
 		          upf_dpi_parse_ip4_packet((ip4_header_t *)pl,
-		                                 pdr->dpi_db_id, &flow->app_index);
-		          gtp_debug("PDR %u, flow app id: %u, DPI DB id %u\n",
-		                    pdr->id, flow->app_index, pdr->dpi_db_id);
+		                                 pdr->dpi_path_db_id,
+		                                 pdr->dpi_host_db_id,
+		                                 &flow->app_index);
+		          gtp_debug("PDR %u, flow app id: %u, path DPI DB id %u\n",
+		                    pdr->id, flow->app_index, pdr->dpi_path_db_id);
 		        }
 		    }
 		}

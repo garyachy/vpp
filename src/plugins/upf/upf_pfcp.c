@@ -2269,7 +2269,11 @@ format_sx_session(u8 * s, va_list * args)
     s = format(s, "] @ %p\n", pdr->urr_ids);
 
 		s = format(s, "  L7 DPI app name: %s\n"
-	       "  DPI DB Id: %u\n", pdr->app_name, pdr->dpi_db_id);
+	             "  path DPI DB Id: %u\n"
+	             "  host DPI DB Id: %u\n",
+	             pdr->app_name,
+	             pdr->dpi_path_db_id,
+	             pdr->dpi_host_db_id);
   }
 
   vec_foreach (far, rules->far) {
