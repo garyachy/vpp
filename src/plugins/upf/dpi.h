@@ -126,6 +126,55 @@ upf_dpi_parse_ip4_packet(ip4_header_t * ip4, u32 path_db_id,
   return 0;
 }
 
+always_inline upf_pdr_t *
+upf_get_highest_dpi_pdr (struct rules * active)
+{
+  upf_pdr_t *pdr = NULL;
+  upf_pdr_t *pdr_iter = NULL;
+
+  if (vec_len(active->pdr) == 0)
+    return NULL;
+
+  vec_foreach (pdr_iter, active->pdr)
+    {
+      if (!pdr_iter->app_name)
+        continue;
+
+      if (pdr == NULL)
+        {
+          pdr = pdr_iter;
+          continue;
+        }
+
+      if (pdr_iter->precedence > pdr->precedence)
+        pdr = pdr_iter;
+    }
+
+  return pdr;
+}
+
+always_inline void
+upf_update_flow_app_index (flow_entry_t * flow, upf_pdr_t * pdr,
+                           u8 * pl, int is_ip4)
+{
+  if (!flow)
+    return;
+
+  if (flow->app_index != ~0)
+    return;
+
+  if (is_ip4)
+    {
+      if (pdr->app_name != NULL)
+        {
+          upf_dpi_parse_ip4_packet((ip4_header_t *)pl,
+                                   pdr->dpi_path_db_id,
+                                   pdr->dpi_host_db_id,
+                                   &flow->app_index);
+        }
+    }
+}
+
 #endif /* __included_upf_dpi_h__ */
 
 /*
