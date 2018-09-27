@@ -155,8 +155,26 @@ upf_classify (vlib_main_t * vm, vlib_node_runtime_t * node,
 	  flowtable_get_flow(pl, &sess->fmt, &flow, is_ip4, direction, current_time);
 
 	  acl = is_ip4 ? active->sdf[direction].ip4 : active->sdf[direction].ip6;
-	  dpi_pdr = upf_get_highest_dpi_pdr(active);
+	  dpi_pdr = upf_get_highest_dpi_pdr(active, direction);
 
+	  if (flow && (flow->client_direction == direction) && flow->app_index != ~0)
+	    {
+	      pdr = sx_get_pdr_by_id(active, flow->client_pdr_id);
+	    }
+	  else if (flow && (flow->client_direction != direction) && flow->app_index != ~0)
+	    {
+	      if (flow->server_pdr_id != ~0)
+		{
+		  pdr = sx_get_pdr_by_id(active, flow->server_pdr_id);
+		}
+	      else
+		{
+		  pdr = upf_get_dpi_pdr_by_name(active, !direction, flow->app_index);
+		  flow->server_pdr_id = pdr->id;
+		}
+	    }
+	  else
+	    {
 	  if (acl == NULL)
 	    {
 	      gtpu_intf_tunnel_key_t key;
@@ -175,7 +193,6 @@ upf_classify (vlib_main_t * vm, vlib_node_runtime_t * node,
 		  if (PREDICT_TRUE (pdr != NULL))
 		    {
 		      vnet_buffer (b)->gtpu.pdr_idx = pdr - active->pdr;
-		      far = sx_get_far_by_id(active, pdr->far_id);
 		        }
 		    }
 		}
@@ -214,7 +231,6 @@ upf_classify (vlib_main_t * vm, vlib_node_runtime_t * node,
 
 		      /* TODO: this should be optimized */
 		      pdr = active->pdr + results[0] - 1;
-		      far = sx_get_far_by_id(active, pdr->far_id);
 		}
 	      else
 		{
@@ -235,7 +251,6 @@ upf_classify (vlib_main_t * vm, vlib_node_runtime_t * node,
 
 		      /* TODO: this should be optimized */
 		      pdr = active->pdr + results[0] - 1;
-		      far = sx_get_far_by_id(active, pdr->far_id);
 		    }
 		}
 
@@ -254,12 +269,13 @@ upf_classify (vlib_main_t * vm, vlib_node_runtime_t * node,
 		        }
 		    }
 		}
+		}
 
 	  if (PREDICT_TRUE (pdr != 0))
 		{
-		  upf_update_flow_app_index(flow, pdr, pl, is_ip4);
-		  gtp_debug("PDR %u, flow app id: %u, path DPI DB id %u\n",
-		          pdr->id, flow->app_index, pdr->dpi_path_db_id);
+		  far = sx_get_far_by_id(active, pdr->far_id);
+
+		  upf_update_flow_app_index(flow, pdr, pl, is_ip4, direction);
 
 	      /* Outer Header Removal */
 	      switch (pdr->outer_header_removal)

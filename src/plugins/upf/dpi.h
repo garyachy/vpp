@@ -127,10 +127,11 @@ upf_dpi_parse_ip4_packet(ip4_header_t * ip4, u32 path_db_id,
 }
 
 always_inline upf_pdr_t *
-upf_get_highest_dpi_pdr (struct rules * active)
+upf_get_highest_dpi_pdr (struct rules * active, int direction)
 {
   upf_pdr_t *pdr = NULL;
   upf_pdr_t *pdr_iter = NULL;
+  int iter_direction = 0;
 
   if (vec_len(active->pdr) == 0)
     return NULL;
@@ -138,6 +139,10 @@ upf_get_highest_dpi_pdr (struct rules * active)
   vec_foreach (pdr_iter, active->pdr)
     {
       if (!pdr_iter->app_name)
+        continue;
+
+      iter_direction = (pdr_iter->pdi.src_intf == SRC_INTF_ACCESS) ? UL_SDF : DL_SDF;
+      if (iter_direction != direction)
         continue;
 
       if (pdr == NULL)
@@ -155,12 +160,15 @@ upf_get_highest_dpi_pdr (struct rules * active)
 
 always_inline void
 upf_update_flow_app_index (flow_entry_t * flow, upf_pdr_t * pdr,
-                           u8 * pl, int is_ip4)
+                           u8 * pl, int is_ip4, u8 direction)
 {
   if (!flow)
     return;
 
   if (flow->app_index != ~0)
+    return;
+
+  if (flow->client_direction != direction)
     return;
 
   if (is_ip4)
@@ -171,8 +179,38 @@ upf_update_flow_app_index (flow_entry_t * flow, upf_pdr_t * pdr,
                                    pdr->dpi_path_db_id,
                                    pdr->dpi_host_db_id,
                                    &flow->app_index);
+          flow->client_pdr_id = pdr->id;
         }
     }
+}
+
+always_inline upf_pdr_t *
+upf_get_dpi_pdr_by_name (struct rules * active, int direction, u32 app_index)
+{
+  upf_pdr_t *pdr = NULL;
+  upf_pdr_t *res = NULL;
+  int iter_direction = 0;
+
+  if (vec_len(active->pdr) == 0)
+    return NULL;
+
+  vec_foreach (pdr, active->pdr)
+    {
+      if (!pdr->app_name)
+        continue;
+
+      iter_direction = (pdr->pdi.src_intf == SRC_INTF_ACCESS) ? UL_SDF : DL_SDF;
+      if (iter_direction != direction)
+        continue;
+
+      if (pdr->app_index == app_index)
+        {
+          res = pdr;
+          break;
+        }
+    }
+
+  return res;
 }
 
 #endif /* __included_upf_dpi_h__ */

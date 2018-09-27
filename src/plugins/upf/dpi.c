@@ -609,8 +609,9 @@ vnet_upf_app_add_del(u8 * name, u8 add)
       app->rules_by_id = hash_create_mem (0, sizeof (u32), sizeof (uword));
       app->path_db_index = ~0;
       app->host_db_index = ~0;
+      app->id = app - sm->upf_apps;
 
-      hash_set_mem (sm->upf_app_by_name, app->name, app - sm->upf_apps);
+      hash_set_mem (sm->upf_app_by_name, app->name, app->id);
     }
   else
     {

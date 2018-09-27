@@ -692,6 +692,7 @@ static int handle_create_pdr(upf_session_t *sess, pfcp_create_pdr_t *create_pdr,
 	}
 
       create->id = pdr->pdr_id;
+      create->app_index = ~0;
       create->dpi_path_db_id = ~0;
       create->dpi_host_db_id = ~0;
       create->precedence = pdr->precedence;
@@ -743,13 +744,23 @@ static int handle_create_pdr(upf_session_t *sess, pfcp_create_pdr_t *create_pdr,
 
 	if (ISSET_BIT(pdr->pdi.grp.fields, PDI_APPLICATION_ID))
 		{
+			uword *p = NULL;
+			upf_dpi_app_t *app = NULL;
 			create->pdi.fields |= F_PDI_APPLICATION_ID;
 
 			create->app_name = vec_dup(pdr->pdi.application_id);
+
+			p = hash_get_mem (gtm->upf_app_by_name, create->app_name);
+			if (p)
+			  {
+			    app = pool_elt_at_index (gtm->upf_apps, p[0]);
+			    create->app_index = app->id;
+			  }
+
 			upf_dpi_get_db_id(create->app_name, &create->dpi_path_db_id,
-												&create->dpi_host_db_id);
+					  &create->dpi_host_db_id);
 			gtp_debug("app_id: %s, DPI DB id %u",
-								create->app_name, create->dpi_path_db_id);
+				  reate->app_name, create->dpi_path_db_id);
 		}
 
       create->outer_header_removal = OPT(pdr, CREATE_PDR_OUTER_HEADER_REMOVAL,
@@ -866,10 +877,20 @@ static int handle_update_pdr(upf_session_t *sess, pfcp_update_pdr_t *update_pdr,
 
 		if (ISSET_BIT(pdr->pdi.grp.fields, PDI_APPLICATION_ID))
 			{
+				uword *p = NULL;
+				upf_dpi_app_t *app = NULL;
 				update->pdi.fields |= F_PDI_APPLICATION_ID;
 
 				vec_free(update->app_name);
 				update->app_name = vec_dup(pdr->pdi.application_id);
+
+				p = hash_get_mem (gtm->upf_app_by_name, update->app_name);
+				if (p)
+				  {
+				    app = pool_elt_at_index (gtm->upf_apps, p[0]);
+				    update->app_index = app->id;
+				  }
+				
 				upf_dpi_get_db_id(update->app_name, &update->dpi_path_db_id,
 													&update->dpi_host_db_id);
 				gtp_debug("app_id: %s, DPI DB id %u",
