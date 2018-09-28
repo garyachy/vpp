@@ -2269,9 +2269,11 @@ format_sx_session(u8 * s, va_list * args)
     s = format(s, "] @ %p\n", pdr->urr_ids);
 
 		s = format(s, "  L7 DPI app name: %v\n"
+	             "  L7 DPI app id: %u\n"
 	             "  path DPI DB Id: %u\n"
 	             "  host DPI DB Id: %u\n",
 	             pdr->app_name,
+	             pdr->app_index,
 	             pdr->dpi_path_db_id,
 	             pdr->dpi_host_db_id);
   }

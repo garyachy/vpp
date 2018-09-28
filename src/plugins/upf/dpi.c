@@ -1104,7 +1104,9 @@ foreach_upf_flows (BVT (clib_bihash_kv) * kvp,
         app_name = format (0, "%s", "None");
 
       vlib_cli_output (vm, "%llu: proto 0x%x, %U(%u) <-> %U(%u), "
-                           "UL pkt %u, DL pkt %u, app %v",
+                       "UL pkt %u, DL pkt %u, "
+                       "client dir %u, client PDR %u, server PDR %u, "
+                       "app %v",
                        flow->infos.data.flow_id,
                        flow->sig.s.ip4.proto,
                        format_ip4_address, &flow->sig.s.ip4.src,
@@ -1113,6 +1115,9 @@ foreach_upf_flows (BVT (clib_bihash_kv) * kvp,
                        ntohs(flow->sig.s.ip4.port_dst),
                        flow->stats[0].pkts,
                        flow->stats[1].pkts,
+                       flow->client_direction,
+                       flow->client_pdr_id,
+                       flow->server_pdr_id,
                        app_name);
 
       vec_free(app_name);

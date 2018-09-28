@@ -169,7 +169,7 @@ upf_classify (vlib_main_t * vm, vlib_node_runtime_t * node,
 		}
 	      else
 		{
-		  pdr = upf_get_dpi_pdr_by_name(active, !direction, flow->app_index);
+		  pdr = upf_get_dpi_pdr_by_name(active, direction, flow->app_index);
 		  flow->server_pdr_id = pdr->id;
 		}
 	    }
