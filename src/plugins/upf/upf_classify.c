@@ -153,28 +153,43 @@ upf_classify (vlib_main_t * vm, vlib_node_runtime_t * node,
 	  pl = vlib_buffer_get_current(b) + vnet_buffer (b)->gtpu.data_offset;
 
 	  flowtable_get_flow(pl, &sess->fmt, &flow, is_ip4, direction, current_time);
+	
+	  gtp_debug("client direction: %u, packet direction: %u",
+		    flow->client_direction, direction);
 
-	  acl = is_ip4 ? active->sdf[direction].ip4 : active->sdf[direction].ip6;
-	  dpi_pdr = upf_get_highest_dpi_pdr(active, direction);
-
-	  if (flow && (flow->client_direction == direction) && flow->app_index != ~0)
+	  /* Check if client PDR is cached in this flow */
+	  if (flow->client_direction == direction)
 	    {
-	      pdr = sx_get_pdr_by_id(active, flow->client_pdr_id);
+	      if (flow->client_pdr_id != ~0)
+		{
+		  pdr = sx_get_pdr_by_id(active, flow->client_pdr_id);
+		}
 	    }
-	  else if (flow && (flow->client_direction != direction) && flow->app_index != ~0)
+	  else
+	  /* Check if server PDR is cached in this flow */
 	    {
 	      if (flow->server_pdr_id != ~0)
 		{
 		  pdr = sx_get_pdr_by_id(active, flow->server_pdr_id);
 		}
-	      else
-		{
-		  pdr = upf_get_dpi_pdr_by_name(active, direction, flow->app_index);
-		  flow->server_pdr_id = pdr->id;
-		}
 	    }
-	  else
+
+	  if (pdr == NULL)
 	    {
+	      if ((flow->client_direction != direction) && flow->app_index != ~0)
+	      {
+		pdr = upf_get_dpi_pdr_by_name(active, direction, flow->app_index);
+		flow->server_pdr_id = pdr->id;
+		gtp_debug("server PDR: %u, app_index: %u",
+			  flow->server_pdr_id, flow->app_index);
+	      }
+	    }
+
+	  if (pdr == NULL)
+	    {
+	      acl = is_ip4 ? active->sdf[direction].ip4 : active->sdf[direction].ip6;
+	      dpi_pdr = upf_get_highest_dpi_pdr(active, direction);
+
 	  if (acl == NULL)
 	    {
 	      gtpu_intf_tunnel_key_t key;
@@ -275,7 +290,17 @@ upf_classify (vlib_main_t * vm, vlib_node_runtime_t * node,
 		{
 		  far = sx_get_far_by_id(active, pdr->far_id);
 
-		  upf_update_flow_app_index(flow, pdr, pl, is_ip4, direction);
+		  if ((flow->client_direction == direction) &&
+		      (flow->client_pdr_id == ~0))
+		    {
+		      upf_update_flow_app_index(flow, pdr, pl, is_ip4);
+		      if (flow->app_index != ~0)
+			{
+			  flow->client_pdr_id = pdr->id;
+			  gtp_debug("client PDR: %u, app_index: %u",
+				    flow->client_pdr_id, flow->app_index);
+			}
+		    }
 
 	      /* Outer Header Removal */
 	      switch (pdr->outer_header_removal)

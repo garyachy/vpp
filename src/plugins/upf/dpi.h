@@ -160,15 +160,12 @@ upf_get_highest_dpi_pdr (struct rules * active, int direction)
 
 always_inline void
 upf_update_flow_app_index (flow_entry_t * flow, upf_pdr_t * pdr,
-                           u8 * pl, int is_ip4, u8 direction)
+                           u8 * pl, int is_ip4)
 {
   if (!flow)
     return;
 
   if (flow->app_index != ~0)
-    return;
-
-  if (flow->client_direction != direction)
     return;
 
   if (is_ip4)
@@ -179,7 +176,6 @@ upf_update_flow_app_index (flow_entry_t * flow, upf_pdr_t * pdr,
                                    pdr->dpi_path_db_id,
                                    pdr->dpi_host_db_id,
                                    &flow->app_index);
-          flow->client_pdr_id = pdr->id;
         }
     }
 }
