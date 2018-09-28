@@ -275,7 +275,7 @@ upf_classify (vlib_main_t * vm, vlib_node_runtime_t * node,
 		        {
 		          if (dpi_pdr != NULL)
 		            {
-		              pdr = (pdr->precedence > dpi_pdr->precedence) ? pdr : dpi_pdr;
+		              pdr = (pdr->precedence < dpi_pdr->precedence) ? pdr : dpi_pdr;
 		            }
 		        }
 		      else

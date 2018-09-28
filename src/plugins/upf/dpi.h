@@ -151,7 +151,7 @@ upf_get_highest_dpi_pdr (struct rules * active, int direction)
           continue;
         }
 
-      if (pdr_iter->precedence > pdr->precedence)
+      if (pdr_iter->precedence < pdr->precedence)
         pdr = pdr_iter;
     }
 
