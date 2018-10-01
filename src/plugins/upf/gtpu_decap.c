@@ -36,8 +36,7 @@ vlib_node_registration_t gtpu6_input_node;
 typedef enum
 {
   GTPU_INPUT_NEXT_DROP,
-  GTPU_INPUT_NEXT_IP4_CLASSIFY,
-  GTPU_INPUT_NEXT_IP6_CLASSIFY,
+  GTPU_INPUT_NEXT_FLOWTABLE,
   GTPU_INPUT_NEXT_ERROR_INDICATION,
   GTPU_INPUT_NEXT_ECHO_REQUEST,
   GTPU_INPUT_N_NEXT,
@@ -290,8 +289,7 @@ gtpu_input (vlib_main_t * vm,
 
 	  /* inner IP header */
 	  ip4_0 = vlib_buffer_get_current (b0) + hdr_len0;
-	  next0 = ((ip4_0->ip_version_and_header_length & 0xF0) == 0x40) ?
-	    GTPU_INPUT_NEXT_IP4_CLASSIFY : GTPU_INPUT_NEXT_IP6_CLASSIFY;
+	  next0 = GTPU_INPUT_NEXT_FLOWTABLE;
 
 	   vnet_buffer (b0)->gtpu.src_intf =
 		   gtm->intf_type_by_sw_if_index[vnet_buffer(b0)->sw_if_index[VLIB_RX]];
@@ -449,8 +447,7 @@ gtpu_input (vlib_main_t * vm,
 
 	  /* inner IP header */
 	  ip4_1 = vlib_buffer_get_current (b1) + hdr_len1;
-	  next1 = ((ip4_1->ip_version_and_header_length & 0xF0) == 0x40) ?
-	    GTPU_INPUT_NEXT_IP4_CLASSIFY : GTPU_INPUT_NEXT_IP6_CLASSIFY;
+	  next1 = GTPU_INPUT_NEXT_FLOWTABLE;
 
 	  vnet_buffer (b1)->gtpu.src_intf =
 		  gtm->intf_type_by_sw_if_index[vnet_buffer(b1)->sw_if_index[VLIB_RX]];
@@ -655,8 +652,7 @@ gtpu_input (vlib_main_t * vm,
 
 	  /* inner IP header */
 	  ip4_0 = vlib_buffer_get_current (b0) + hdr_len0;
-	  next0 = ((ip4_0->ip_version_and_header_length & 0xF0) == 0x40) ?
-	    GTPU_INPUT_NEXT_IP4_CLASSIFY : GTPU_INPUT_NEXT_IP6_CLASSIFY;
+	  next0 = GTPU_INPUT_NEXT_FLOWTABLE;
 
 	  vnet_buffer (b0)->gtpu.src_intf =
 		  gtm->intf_type_by_sw_if_index[vnet_buffer(b0)->sw_if_index[VLIB_RX]];
@@ -760,8 +756,7 @@ VLIB_REGISTER_NODE (gtpu4_input_node) = {
   .n_next_nodes = GTPU_INPUT_N_NEXT,
   .next_nodes = {
     [GTPU_INPUT_NEXT_DROP]             = "error-drop",
-    [GTPU_INPUT_NEXT_IP4_CLASSIFY]     = "upf-ip4-classify",
-    [GTPU_INPUT_NEXT_IP6_CLASSIFY]     = "upf-ip6-classify",
+    [GTPU_INPUT_NEXT_FLOWTABLE]        = "upf-flowtable",
     [GTPU_INPUT_NEXT_ERROR_INDICATION] = "gtp-error-indication",
     [GTPU_INPUT_NEXT_ECHO_REQUEST]     = "upf-ip4-echo-request",
   },
@@ -785,8 +780,7 @@ VLIB_REGISTER_NODE (gtpu6_input_node) = {
   .n_next_nodes = GTPU_INPUT_N_NEXT,
   .next_nodes = {
     [GTPU_INPUT_NEXT_DROP]             = "error-drop",
-    [GTPU_INPUT_NEXT_IP4_CLASSIFY]     = "upf-ip4-classify",
-    [GTPU_INPUT_NEXT_IP6_CLASSIFY]     = "upf-ip6-classify",
+    [GTPU_INPUT_NEXT_FLOWTABLE]        = "upf-flowtable",
     [GTPU_INPUT_NEXT_ERROR_INDICATION] = "gtp-error-indication",
     [GTPU_INPUT_NEXT_ECHO_REQUEST]     = "upf-ip6-echo-request",
   },
