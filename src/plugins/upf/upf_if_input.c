@@ -71,7 +71,7 @@ typedef struct {
   u8 packet_data[64 - 1 * sizeof (u32)];
 } upf_if_input_trace_t;
 
-u8 * format_upf_if_input_trace (u8 * s, va_list * args)
+static u8 * format_upf_if_input_trace (u8 * s, va_list * args)
 {
   CLIB_UNUSED (vlib_main_t * vm) = va_arg (*args, vlib_main_t *);
   CLIB_UNUSED (vlib_node_t * node) = va_arg (*args, vlib_node_t *);
