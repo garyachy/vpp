@@ -103,7 +103,6 @@ upf_flowtable (vlib_main_t * vm, vlib_node_runtime_t * node, vlib_frame_t * from
   u32 sw_if_index = 0;
   u32 next = 0;
   u32 sidx = 0;
-  u8 intf_type = ~0;
   u32 len;
   ip4_header_t *ip4;
 
@@ -116,6 +115,7 @@ upf_flowtable (vlib_main_t * vm, vlib_node_runtime_t * node, vlib_frame_t * from
       u32 n_left_to_next;
       vlib_buffer_t * b;
       u32 bi;
+      u8 * pl;
 
       vlib_get_next_frame (vm, node, next_index,
 			   to_next, n_left_to_next);
@@ -131,29 +131,23 @@ upf_flowtable (vlib_main_t * vm, vlib_node_runtime_t * node, vlib_frame_t * from
 
 	  b = vlib_get_buffer (vm, bi);
 
-	  /* Get next node index and adj index from tunnel next_dpo */
-	  sw_if_index = vnet_buffer(b)->sw_if_index[VLIB_TX];
-	  sidx = gtm->session_index_by_sw_if_index[sw_if_index];
-	  intf_type = gtm->intf_type_by_sw_if_index[vnet_buffer(b)->sw_if_index[VLIB_RX]];
+	  pl = vlib_buffer_get_current(b) + vnet_buffer (b)->gtpu.data_offset;
 
-	  gtp_debug("HW If: %p, Session %d",
-		    vnet_get_sup_hw_interface (vnm, sw_if_index), sidx);
+	  vnet_buffer (b)->gtpu.session_index = vnet_buffer (b)->gtpu.session_index;
+	  vnet_buffer (b)->gtpu.data_offset = vnet_buffer (b)->gtpu.data_offset;
+	  vnet_buffer (b)->gtpu.src_intf = vnet_buffer (b)->gtpu.src_intf;
+	  vnet_buffer (b)->gtpu.teid = vnet_buffer (b)->gtpu.teid;
+	  vnet_buffer (b)->gtpu.flags = vnet_buffer (b)->gtpu.flags;
 
-	  vnet_buffer (b)->gtpu.session_index = sidx;
-	  vnet_buffer (b)->gtpu.data_offset = 0;
-	  vnet_buffer (b)->gtpu.src_intf = intf_type;
-	  vnet_buffer (b)->gtpu.teid = 0;
-	  ip4 = (ip4_header_t *)vlib_buffer_get_current(b);
+	  ip4 = (ip4_header_t *)pl;
 
 	  if ((ip4->ip_version_and_header_length & 0xF0) == 0x40)
 	    {
 	      next = UPF_IF_INPUT_NEXT_IP4_CLASSIFY;
-	      vnet_buffer (b)->gtpu.flags = BUFFER_HAS_IP4_HDR;
 	    }
 	  else
 	    {
 	      next = UPF_IF_INPUT_NEXT_IP6_CLASSIFY;
-	      vnet_buffer (b)->gtpu.flags = BUFFER_HAS_IP6_HDR;
 	    }
 
 	  len = vlib_buffer_length_in_chain (vm, b);
