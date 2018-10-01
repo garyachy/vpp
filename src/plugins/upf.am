@@ -65,7 +65,8 @@ upf_plugin_la_SOURCES = \
   upf/flowtable_tcp.h \
   upf/dpi.c \
   upf/dpi.h \
-  upf/upf_timer.c
+  upf/upf_timer.c \
+  upf/upf_flowtable_node.c
 
 API_FILES += upf/upf.api
 

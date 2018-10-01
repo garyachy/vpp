@@ -56,7 +56,8 @@ typedef enum {
 
 #define foreach_upf_if_input_next		\
   _(DROP, "error-drop")				\
-  _(FLOWTABLE, "upf-flowtable")		\
+  _(IP4_CLASSIFY, "upf-ip4-classify")		\
+  _(IP6_CLASSIFY, "upf-ip6-classify")
 
 typedef enum {
 #define _(s,n) UPF_IF_INPUT_NEXT_##s,
@@ -87,7 +88,7 @@ u8 * format_upf_if_input_trace (u8 * s, va_list * args)
 }
 
 static uword
-upf_if_input (vlib_main_t * vm, vlib_node_runtime_t * node, vlib_frame_t * from_frame)
+upf_flowtable (vlib_main_t * vm, vlib_node_runtime_t * node, vlib_frame_t * from_frame)
 {
   u32 n_left_from, next_index, * from, * to_next;
   upf_main_t * gtm = &upf_main;
@@ -146,12 +147,12 @@ upf_if_input (vlib_main_t * vm, vlib_node_runtime_t * node, vlib_frame_t * from_
 
 	  if ((ip4->ip_version_and_header_length & 0xF0) == 0x40)
 	    {
-	      next = UPF_IF_INPUT_NEXT_FLOWTABLE;
+	      next = UPF_IF_INPUT_NEXT_IP4_CLASSIFY;
 	      vnet_buffer (b)->gtpu.flags = BUFFER_HAS_IP4_HDR;
 	    }
 	  else
 	    {
-	      next = UPF_IF_INPUT_NEXT_FLOWTABLE;
+	      next = UPF_IF_INPUT_NEXT_IP6_CLASSIFY;
 	      vnet_buffer (b)->gtpu.flags = BUFFER_HAS_IP6_HDR;
 	    }
 
@@ -199,9 +200,9 @@ upf_if_input (vlib_main_t * vm, vlib_node_runtime_t * node, vlib_frame_t * from_
   return from_frame->n_vectors;
 }
 
-VLIB_REGISTER_NODE (upf_if_input_node) = {
-  .function = upf_if_input,
-  .name = "upf-if-input",
+VLIB_REGISTER_NODE (upf_flowtable_node) = {
+  .function = upf_flowtable,
+  .name = "upf-flowtable",
   .vector_size = sizeof (u32),
   .format_trace = format_upf_if_input_trace,
   .type = VLIB_NODE_TYPE_INTERNAL,
@@ -215,7 +216,7 @@ VLIB_REGISTER_NODE (upf_if_input_node) = {
   },
 };
 
-VLIB_NODE_FUNCTION_MULTIARCH (upf_if_input_node, upf_if_input)
+VLIB_NODE_FUNCTION_MULTIARCH (upf_flowtable_node, upf_flowtable)
 
 /*
  * fd.io coding-style-patch-verification: ON
